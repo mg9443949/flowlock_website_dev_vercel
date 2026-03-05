@@ -76,18 +76,24 @@ function DailyView({ userId }: { userId: string }) {
   useEffect(() => {
     async function fetchDaily() {
       setLoading(true)
-      const todayStart = new Date()
-      todayStart.setHours(0, 0, 0, 0)
+      try {
+        const todayStart = new Date()
+        todayStart.setHours(0, 0, 0, 0)
 
-      const { data } = await supabase
-        .from("study_sessions")
-        .select("started_at, duration_ms, focus_score")
-        .eq("user_id", userId)
-        .gte("started_at", todayStart.toISOString())
-        .order("started_at", { ascending: true })
+        const { data } = await supabase
+          .from("study_sessions")
+          .select("started_at, duration_ms, focus_score")
+          .eq("user_id", userId)
+          .gte("started_at", todayStart.toISOString())
+          .order("started_at", { ascending: true })
 
-      setSessions(data || [])
-      setLoading(false)
+        setSessions(data || [])
+      } catch (e) {
+        console.error("Failed to fetch daily data:", e)
+        setSessions([])
+      } finally {
+        setLoading(false)
+      }
     }
     fetchDaily()
   }, [userId])
@@ -183,40 +189,45 @@ function WeeklyView({ userId }: { userId: string }) {
   useEffect(() => {
     async function fetchWeekly() {
       setLoading(true)
-      // Get start of current week (Monday)
-      const now = new Date()
-      const dayOfWeek = now.getDay()
-      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-      const weekStart = new Date(now)
-      weekStart.setDate(now.getDate() + mondayOffset)
-      weekStart.setHours(0, 0, 0, 0)
+      try {
+        // Get start of current week (Monday)
+        const now = new Date()
+        const dayOfWeek = now.getDay()
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+        const weekStart = new Date(now)
+        weekStart.setDate(now.getDate() + mondayOffset)
+        weekStart.setHours(0, 0, 0, 0)
 
-      const { data } = await supabase
-        .from("study_sessions")
-        .select("started_at, duration_ms, focus_score")
-        .eq("user_id", userId)
-        .gte("started_at", weekStart.toISOString())
-        .order("started_at", { ascending: true })
+        const { data } = await supabase
+          .from("study_sessions")
+          .select("started_at, duration_ms, focus_score")
+          .eq("user_id", userId)
+          .gte("started_at", weekStart.toISOString())
+          .order("started_at", { ascending: true })
 
-      // Group by day of week
-      const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-      const grouped = dayNames.map(day => ({ day, focusMin: 0, sessions: 0, score: 0 }))
+        // Group by day of week
+        const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        const grouped = dayNames.map(day => ({ day, focusMin: 0, sessions: 0, score: 0 }))
 
-      if (data) {
-        for (const s of data) {
-          const d = new Date(s.started_at)
-          const idx = (d.getDay() + 6) % 7 // Mon=0 .. Sun=6
-          grouped[idx].focusMin += Math.round(s.duration_ms / 60000)
-          grouped[idx].sessions += 1
-          grouped[idx].score += s.focus_score
+        if (data) {
+          for (const s of data) {
+            const d = new Date(s.started_at)
+            const idx = (d.getDay() + 6) % 7 // Mon=0 .. Sun=6
+            grouped[idx].focusMin += Math.round(s.duration_ms / 60000)
+            grouped[idx].sessions += 1
+            grouped[idx].score += s.focus_score
+          }
+          for (const g of grouped) {
+            if (g.sessions > 0) g.score = Math.round(g.score / g.sessions)
+          }
         }
-        for (const g of grouped) {
-          if (g.sessions > 0) g.score = Math.round(g.score / g.sessions)
-        }
+
+        setWeekData(grouped)
+      } catch (e) {
+        console.error("Failed to fetch weekly data:", e)
+      } finally {
+        setLoading(false)
       }
-
-      setWeekData(grouped)
-      setLoading(false)
     }
     fetchWeekly()
   }, [userId])
@@ -300,41 +311,46 @@ function MonthlyView({ userId }: { userId: string }) {
   useEffect(() => {
     async function fetchMonthly() {
       setLoading(true)
-      // Get start of current month
-      const now = new Date()
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      try {
+        // Get start of current month
+        const now = new Date()
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
-      const { data } = await supabase
-        .from("study_sessions")
-        .select("started_at, duration_ms, focus_score")
-        .eq("user_id", userId)
-        .gte("started_at", monthStart.toISOString())
-        .order("started_at", { ascending: true })
+        const { data } = await supabase
+          .from("study_sessions")
+          .select("started_at, duration_ms, focus_score")
+          .eq("user_id", userId)
+          .gte("started_at", monthStart.toISOString())
+          .order("started_at", { ascending: true })
 
-      // Group into 4-week segments
-      const weeks = [
-        { week: "Week 1", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
-        { week: "Week 2", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
-        { week: "Week 3", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
-        { week: "Week 4", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
-      ]
+        // Group into 4-week segments
+        const weeks = [
+          { week: "Week 1", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
+          { week: "Week 2", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
+          { week: "Week 3", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
+          { week: "Week 4", focusMin: 0, sessions: 0, avgScore: 0, totalScore: 0 },
+        ]
 
-      if (data) {
-        for (const s of data) {
-          const dayOfMonth = new Date(s.started_at).getDate()
-          // Week 1: days 1-7, Week 2: 8-14, Week 3: 15-21, Week 4: 22+
-          const weekIdx = Math.min(Math.floor((dayOfMonth - 1) / 7), 3)
-          weeks[weekIdx].focusMin += Math.round(s.duration_ms / 60000)
-          weeks[weekIdx].sessions += 1
-          weeks[weekIdx].totalScore += s.focus_score
+        if (data) {
+          for (const s of data) {
+            const dayOfMonth = new Date(s.started_at).getDate()
+            // Week 1: days 1-7, Week 2: 8-14, Week 3: 15-21, Week 4: 22+
+            const weekIdx = Math.min(Math.floor((dayOfMonth - 1) / 7), 3)
+            weeks[weekIdx].focusMin += Math.round(s.duration_ms / 60000)
+            weeks[weekIdx].sessions += 1
+            weeks[weekIdx].totalScore += s.focus_score
+          }
+          for (const w of weeks) {
+            if (w.sessions > 0) w.avgScore = Math.round(w.totalScore / w.sessions)
+          }
         }
-        for (const w of weeks) {
-          if (w.sessions > 0) w.avgScore = Math.round(w.totalScore / w.sessions)
-        }
+
+        setMonthData(weeks)
+      } catch (e) {
+        console.error("Failed to fetch monthly data:", e)
+      } finally {
+        setLoading(false)
       }
-
-      setMonthData(weeks)
-      setLoading(false)
     }
     fetchMonthly()
   }, [userId])
@@ -410,25 +426,30 @@ function YearlyView({ userId }: { userId: string }) {
   useEffect(() => {
     async function fetchYearly() {
       setLoading(true)
-      const { data, error } = await supabase.rpc("get_yearly_heatmap", { p_user_id: userId })
+      try {
+        const { data, error } = await supabase.rpc("get_yearly_heatmap", { p_user_id: userId })
 
-      if (data && !error) {
-        setYearData(data.map((d: any) => ({
-          date: new Date(d.day + "T12:00:00"),
-          focusMin: d.focus_minutes || 0,
-        })))
-      } else {
-        // Fallback: generate 365 empty days
-        const days: { date: Date; focusMin: number }[] = []
-        const today = new Date()
-        for (let i = 364; i >= 0; i--) {
-          const d = new Date(today)
-          d.setDate(d.getDate() - i)
-          days.push({ date: d, focusMin: 0 })
+        if (data && !error) {
+          setYearData(data.map((d: any) => ({
+            date: new Date(d.day + "T12:00:00"),
+            focusMin: d.focus_minutes || 0,
+          })))
+        } else {
+          // Fallback: generate 365 empty days
+          const days: { date: Date; focusMin: number }[] = []
+          const today = new Date()
+          for (let i = 364; i >= 0; i--) {
+            const d = new Date(today)
+            d.setDate(d.getDate() - i)
+            days.push({ date: d, focusMin: 0 })
+          }
+          setYearData(days)
         }
-        setYearData(days)
+      } catch (e) {
+        console.error("Failed to fetch yearly data:", e)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     fetchYearly()
   }, [userId])

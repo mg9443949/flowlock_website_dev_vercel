@@ -8,6 +8,7 @@ import Script from "next/script"
 import type { FaceLandmarker as FaceLandmarkerType } from "@mediapipe/tasks-vision"
 import { useNoiseDetector } from "@/hooks/use-noise-detector"
 import { useAuth } from "@/components/providers/auth-provider"
+import { useFocus } from "@/components/providers/focus-provider"
 import { supabase } from "@/utils/supabase/client"
 import { toast } from "sonner"
 import { useFaceAuth } from "@/hooks/use-face-auth"
@@ -30,6 +31,7 @@ export interface FocusSessionResult {
 
 interface FocusTrackerProps {
     onSessionComplete?: (result: FocusSessionResult) => void
+    visible?: boolean
 }
 
 // Detection configuration
@@ -42,7 +44,7 @@ const CONFIG = {
 type DetectionStatus = "FOCUSED" | "DROWSY" | "HEAD_TURNED" | "FACE_MISSING" | "UNAUTHORIZED"
 type Phase = "ready" | "enroll" | "active" | "results"
 
-export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
+export function FocusTracker({ onSessionComplete, visible = true }: FocusTrackerProps) {
     const [phase, setPhase] = useState<Phase>("ready")
     const [chartLoaded, setChartLoaded] = useState(false)
     const [statusText, setStatusText] = useState("System Ready")
@@ -64,6 +66,7 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
     // Noise detection hook
     const { noiseState, startNoise, stopNoise, setAlertCallback } = useNoiseDetector()
     const { user } = useAuth()
+    const { startFocusSession, stopFocusSession, setFocusElapsed, isFocusActive } = useFocus()
     const {
         loadModels,
         isModelsLoaded,
@@ -92,6 +95,7 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
     const authIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const isUnauthorizedRef = useRef<boolean>(false)
     const processDetectionRef = useRef<(faceLandmarks: any[], ctx: CanvasRenderingContext2D) => void>(() => { })
+    const authenticateFaceRef = useRef(authenticateFace)
 
     // Register noise alert callback
     useEffect(() => {
@@ -284,6 +288,11 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
         processDetectionRef.current = processDetection
     }, [processDetection])
 
+    // Keep the ref always pointing to the latest authenticateFace
+    useEffect(() => {
+        authenticateFaceRef.current = authenticateFace
+    }, [authenticateFace])
+
     // Detection loop — uses detectForVideo (synchronous) and ref for latest processDetection
     const detectLoop = useCallback(() => {
         if (!isRunningRef.current || !videoRef.current || !canvasRef.current || !modelRef.current) return
@@ -405,12 +414,17 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
             startTimeRef.current = Date.now()
             updateStatusUI("✓ Focused", "focused")
 
+            // Signal to provider that session is active
+            startFocusSession()
+
             // Start noise detection
             startNoise()
 
             // Duration ticker
             durationIntervalRef.current = setInterval(() => {
                 const elapsed = Date.now() - startTimeRef.current
+                const elapsedSec = Math.floor(elapsed / 1000)
+                setFocusElapsed(elapsedSec)
                 setMetrics((prev) => ({
                     ...prev,
                     duration: `${Math.floor(elapsed / 60000)
@@ -425,7 +439,7 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
             authIntervalRef.current = setInterval(async () => {
                 if (!videoRef.current || !isRunningRef.current) return
                 try {
-                    const result = await authenticateFace(videoRef.current)
+                    const result = await authenticateFaceRef.current(videoRef.current)
                     if (!result.authenticated && result.message !== "No face detected" && result.message !== "No enrolled face found" && result.message !== "Models not loaded") {
                         isUnauthorizedRef.current = true
                     } else if (result.authenticated) {
@@ -510,8 +524,9 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
             unauthorizedTime: unauthorizedDuration,
         }
 
-        // Persist session to Supabase (atomic — must complete before showing results)
-        if (user?.id) {
+        // Persist session to Supabase (with validation to prevent bogus data)
+        const MAX_SESSION_MS = 24 * 60 * 60 * 1000 // 24 hours max
+        if (user?.id && startTimeRef.current > 0 && totalDuration > 0 && totalDuration < MAX_SESSION_MS) {
             const startedAt = new Date(startTimeRef.current).toISOString()
             const endedAt = new Date(now).toISOString()
             const { error } = await supabase.from("study_sessions").insert({
@@ -536,6 +551,9 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
 
         setResult(sessionResult)
         setPhase("results")
+
+        // Signal to provider that session ended
+        stopFocusSession()
 
         if (onSessionComplete) {
             onSessionComplete(sessionResult)
@@ -576,6 +594,8 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
             isRunningRef.current = false
             if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current)
             if (durationIntervalRef.current) clearInterval(durationIntervalRef.current)
+            if (authIntervalRef.current) clearInterval(authIntervalRef.current)
+            stopNoise()
             if (videoRef.current?.srcObject) {
                 const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
                 tracks.forEach((track) => track.stop())
@@ -583,6 +603,16 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
             if (chartInstanceRef.current) chartInstanceRef.current.destroy()
         }
     }, [])
+
+    // External stop detection — when the mini bar's Stop button is pressed,
+    // isFocusActive becomes false; this triggers the actual session stop.
+    const handleStopRef = useRef(handleStop)
+    useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
+    useEffect(() => {
+        if (!isFocusActive && phase === "active") {
+            handleStopRef.current()
+        }
+    }, [isFocusActive, phase])
 
     const handleDownloadReport = useCallback(() => {
         if (!result) return
@@ -615,7 +645,7 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
     }, [result, formatTime])
 
     return (
-        <>
+        <div style={{ display: visible ? undefined : 'none' }}>
             {/* Chart.js CDN — only dependency still loaded via script tag */}
             <Script
                 src="https://cdn.jsdelivr.net/npm/chart.js"
@@ -1013,6 +1043,6 @@ export function FocusTracker({ onSessionComplete }: FocusTrackerProps) {
                     </div>
                 )}
             </div>
-        </>
+        </div>
     )
 }
