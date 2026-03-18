@@ -103,7 +103,8 @@ async function callSpotify(endpoint: string): Promise<any | null> {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) {
-    console.error("[Spotify] API error", res.status, endpoint)
+    const errText = await res.text()
+    console.error("[Spotify] API error", res.status, endpoint, errText)
     return null
   }
   return res.json()
