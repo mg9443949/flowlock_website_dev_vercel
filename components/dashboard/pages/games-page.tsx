@@ -60,15 +60,7 @@ export function GamesPage() {
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-3">
                 <div className={`h-10 w-10 relative overflow-hidden rounded-full flex items-center justify-center ${gestureEnabled ? "bg-black" : "bg-muted"}`}>
-                  {/* Hidden webcam feed (or tiny preview) */}
-                  <video 
-                    ref={videoRef} 
-                    autoPlay 
-                    playsInline 
-                    muted 
-                    className={`absolute inset-0 w-full h-full object-cover opacity-30 ${!gestureEnabled && "hidden"}`} 
-                    style={{ transform: "scaleX(-1)" }} 
-                  />
+                  {/* Video moved to root to prevent offscreen throttling when scrolling down */}
                   <Hand size={20} className={`relative z-10 ${gestureEnabled ? "text-emerald-400" : "text-muted-foreground"}`} />
                 </div>
                 <div>
@@ -153,26 +145,46 @@ export function GamesPage() {
       </div>
 
       {gestureEnabled && (
-        <div
-          id="virtual-gesture-cursor"
-          style={{
-            position: "fixed",
-            left: x,
-            top: y,
-            width: "24px",
-            height: "24px",
-            marginLeft: "-12px",
-            marginTop: "-12px",
-            background: gesture === "LEFT_CLICK" ? "rgba(239, 68, 68, 0.8)" : "rgba(16, 185, 129, 0.8)",
-            border: "2px solid white",
-            borderRadius: "50%",
-            pointerEvents: "none",
-            zIndex: 9999,
-            transition: "transform 0.1s, background 0.15s",
-            boxShadow: "0 0 15px rgba(16, 185, 129, 0.5)",
-            display: isActive ? "block" : "none"
-          }}
-        />
+        <>
+          {/* Fixed positioned hidden video prevents Chromium from pausing the MediaStream when page is scrolled */}
+          <video 
+            ref={videoRef} 
+            autoPlay 
+            playsInline 
+            muted 
+            style={{ 
+              position: "fixed", 
+              top: 0, 
+              left: 0, 
+              width: "1px", 
+              height: "1px", 
+              opacity: 0.001, 
+              pointerEvents: "none", 
+              zIndex: -9999,
+              transform: "scaleX(-1)" 
+            }} 
+          />
+          <div
+            id="virtual-gesture-cursor"
+            style={{
+              position: "fixed",
+              left: x,
+              top: y,
+              width: "24px",
+              height: "24px",
+              marginLeft: "-12px",
+              marginTop: "-12px",
+              background: gesture === "LEFT_CLICK" ? "rgba(239, 68, 68, 0.8)" : "rgba(16, 185, 129, 0.8)",
+              border: "2px solid white",
+              borderRadius: "50%",
+              pointerEvents: "none",
+              zIndex: 9999,
+              transition: "transform 0.1s, background 0.15s",
+              boxShadow: "0 0 15px rgba(16, 185, 129, 0.5)",
+              display: isActive ? "block" : "none"
+            }}
+          ></div>
+        </>
       )}
     </div>
   )

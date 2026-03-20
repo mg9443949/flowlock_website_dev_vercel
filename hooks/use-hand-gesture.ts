@@ -75,29 +75,28 @@ export function useHandGesture(enabled: boolean) {
         }
     }, [enabled])
 
-    // Detect gestures based on landmark y coordinates (tip vs PIP joint)
+    // Detect gestures based on landmark distances from the wrist
     const classifyGesture = (landmarks: any[]) => {
-        // [thumb, index, middle, ring, pinky]
-        // For thumb, we use x-axis heuristic relative to index MCP to loosely define "up/out", 
-        // but for simplicity online we can just measure distance from palm. 
-        // Or simply: tip y < dip y for other fingers.
-        const isUp = (tip: number, pip: number) => landmarks[tip].y < landmarks[pip].y
+        // Simple distance function
+        const getDist = (p1: any, p2: any) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2))
+        
+        // A finger is extended if its tip is further from the wrist (0) than its PIP joint
+        const isUp = (tip: number, pip: number) => {
+            return getDist(landmarks[tip], landmarks[0]) > getDist(landmarks[pip], landmarks[0])
+        }
 
+        const thumbUp = isUp(4, 3)
         const indexUp = isUp(8, 6)
         const middleUp = isUp(12, 10)
         const ringUp = isUp(16, 14)
         const pinkyUp = isUp(20, 18)
         
-        // Thumb heuristic: tip x is further out than knuckle x (mirrored)
-        // A simpler universal thumb up: distance to wrist is large.
-        // Let's use the Python heuristic roughly.
-        const thumbUp = landmarks[4].y < landmarks[3].y || Math.abs(landmarks[4].x - landmarks[2].x) > 0.1
-
         const f = [thumbUp, indexUp, middleUp, ringUp, pinkyUp]
 
-        if (f[1] && f[2] && f[3] && f[4]) return "MOVE" // all 4 fingers up
-        if (f[1] && !f[2] && !f[3] && !f[4]) return "LEFT_CLICK" // index only
-        if (!f[1] && !f[2] && !f[3] && f[4]) return "RIGHT_CLICK" // pinky only
+        if (f[1] && f[2] && f[3] && f[4]) return "MOVE" // all 4 fingers (with or without thumb)
+        if (!f[0] && f[1] && !f[2] && !f[3] && !f[4]) return "LEFT_CLICK" // strictly index only
+        if (f[0] && f[1] && !f[2] && !f[3] && !f[4]) return "LEFT_CLICK" // index + thumb (to match user habit)
+        if (!f[1] && !f[2] && !f[3] && f[4]) return "RIGHT_CLICK" // pinky only (with or without thumb)
         if (f[0] && !f[1] && !f[2] && !f[3] && !f[4]) return "SCROLL_UP" // thumb only
         if (!f[0] && !f[1] && !f[2] && !f[3] && !f[4]) return "SCROLL_DOWN" // fist
 
