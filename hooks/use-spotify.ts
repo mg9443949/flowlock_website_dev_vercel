@@ -16,6 +16,7 @@ const SK = {
   refreshToken: "sp_refresh_token",
   expiresAt: "sp_expires_at",
   codeVerifier: "sp_code_verifier",
+  redirectUri: "sp_redirect_uri",
   cachedUser: "sp_cached_user",
   cachedPlaylists: "sp_cached_playlists",
 }
@@ -132,8 +133,67 @@ export function useSpotify() {
     const init = async () => {
       setIsLoading(true)
 
-      // 1. Check for OAuth callback tokens in URL (highest priority)
       const params = new URLSearchParams(window.location.search)
+
+      // 1. Check for OAuth callback code — do PKCE token exchange client-side
+      //    (We exchange client-side because the code_verifier is in localStorage,
+      //     not in a cookie, avoiding the localhost ↔ 127.0.0.1 cookie issue.)
+      const codeParam = params.get("spotify_code")
+      if (codeParam) {
+        // Clean URL immediately
+        const url = new URL(window.location.href)
+        url.searchParams.delete("spotify_code")
+        window.history.replaceState({}, "", url.toString())
+
+        const codeVerifier = localStorage.getItem(SK.codeVerifier)
+        const redirectUri = localStorage.getItem(SK.redirectUri)
+
+        if (!codeVerifier || !redirectUri) {
+          console.error("[Spotify] Missing code_verifier or redirect_uri for token exchange")
+          setIsLoading(false)
+          return
+        }
+
+        try {
+          const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: CLIENT_ID,
+              grant_type: "authorization_code",
+              code: codeParam,
+              redirect_uri: redirectUri,
+              code_verifier: codeVerifier,
+            }),
+          })
+
+          const tokenData = await tokenRes.json()
+
+          if (!tokenRes.ok || tokenData.error) {
+            console.error("[Spotify] Token exchange failed:", tokenData)
+            setIsLoading(false)
+            return
+          }
+
+          const expiresAt = Date.now() + (tokenData.expires_in - 60) * 1000
+          localStorage.setItem(SK.accessToken, tokenData.access_token)
+          localStorage.setItem(SK.refreshToken, tokenData.refresh_token)
+          localStorage.setItem(SK.expiresAt, String(expiresAt))
+          // Clean up PKCE artifacts
+          localStorage.removeItem(SK.codeVerifier)
+          localStorage.removeItem(SK.redirectUri)
+
+          setIsLoggedIn(true)
+          setIsLoading(false)
+          return
+        } catch (err) {
+          console.error("[Spotify] Token exchange error:", err)
+          setIsLoading(false)
+          return
+        }
+      }
+
+      // 2. Check for legacy token params (from old callback flow)
       const atParam = params.get("access_token")
       const rtParam = params.get("refresh_token")
       const exParam = params.get("expires_in")
@@ -143,21 +203,28 @@ export function useSpotify() {
         localStorage.setItem(SK.accessToken, atParam)
         localStorage.setItem(SK.refreshToken, rtParam)
         localStorage.setItem(SK.expiresAt, String(expiresAt))
-        window.history.replaceState({}, "", window.location.pathname)
+        const url = new URL(window.location.href)
+        url.searchParams.delete("access_token")
+        url.searchParams.delete("refresh_token")
+        url.searchParams.delete("expires_in")
+        window.history.replaceState({}, "", url.toString())
         setIsLoggedIn(true)
         setIsLoading(false)
         return
       }
 
+      // 3. Check for error
       const errParam = params.get("spotify_error")
       if (errParam) {
         console.error("[Spotify] OAuth error:", errParam)
-        window.history.replaceState({}, "", window.location.pathname)
+        const url = new URL(window.location.href)
+        url.searchParams.delete("spotify_error")
+        window.history.replaceState({}, "", url.toString())
         setIsLoading(false)
         return
       }
 
-      // 2. Try to restore from localStorage (existing session)
+      // 4. Try to restore from localStorage (existing session)
       const token = await getToken()
       if (token) {
         setIsLoggedIn(true)
@@ -215,9 +282,12 @@ export function useSpotify() {
     const verifier = generateRandomString(128)
     const challenge = await generateCodeChallenge(verifier)
     localStorage.setItem(SK.codeVerifier, verifier)
-    document.cookie = `spotify_code_verifier=${verifier}; path=/; max-age=600; SameSite=Lax`
 
-    const redirectUri = `${window.location.protocol}//${window.location.host}/api/spotify/callback`
+    // Use 127.0.0.1 for the redirect URI (Spotify only allows http://127.0.0.1, not http://localhost)
+    const host = window.location.host.replace("localhost", "127.0.0.1")
+    const redirectUri = `${window.location.protocol}//${host}/api/spotify/callback`
+    localStorage.setItem(SK.redirectUri, redirectUri)
+
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
       response_type: "code",

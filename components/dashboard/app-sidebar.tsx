@@ -1,6 +1,6 @@
 "use client"
 
-import { BarChart3, Users, TrendingUp, Settings, Gamepad2, Menu, X, Clock, LogOut, Eye, Zap, Monitor, FileBarChart, Music2, Play, Pause } from "lucide-react"
+import { BarChart3, Users, TrendingUp, Settings, Gamepad2, Menu, X, Clock, LogOut, Eye, Zap, Monitor, FileBarChart, Music2, Play, Pause, Calendar } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -31,6 +31,7 @@ export function AppSidebar({ userRole, onLogout }: AppSidebarProps) {
         { id: "productivity", label: "Productivity Report", icon: FileBarChart, href: "/dashboard/productivity", roles: ["student", "admin"] as const },
         { id: "games", label: "Games", icon: Gamepad2, href: "/dashboard/games", roles: ["student", "admin"] as const },
         { id: "playlist", label: "Sonar Playlist", icon: Music2, href: "/dashboard/playlist", roles: ["student", "admin"] as const },
+        { id: "calendar", label: "Calendar", icon: Calendar, href: "/dashboard/calendar", roles: ["student", "admin"] as const },
         { id: "settings", label: "Settings", icon: Settings, href: "/dashboard/settings", roles: ["student", "admin"] as const },
     ]
 

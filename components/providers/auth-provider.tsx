@@ -37,20 +37,43 @@ function getSpotifyEnabled(): boolean {
 }
 
 async function fetchProfile(supaUser: User): Promise<AuthUser | null> {
-    const { data, error } = await supabase
-        .from("profiles")
-        .select("full_name, email, role")
-        .eq("id", supaUser.id)
-        .single()
+    try {
+        const { data, error } = await supabase
+            .from("profiles")
+            .select("full_name, email, role")
+            .eq("id", supaUser.id)
+            .single()
 
-    if (error || !data) return null
+        if (!error && data) {
+            return {
+                id: supaUser.id,
+                name: data.full_name || supaUser.user_metadata?.full_name || "",
+                email: data.email,
+                role: data.role as "student" | "admin",
+                isSpotifyLinked: getSpotifyEnabled(),
+            }
+        }
 
-    return {
-        id: supaUser.id,
-        name: data.full_name || supaUser.user_metadata?.full_name || "",
-        email: data.email,
-        role: data.role as "student" | "admin",
-        isSpotifyLinked: getSpotifyEnabled(),
+        // Fallback: profile row doesn't exist yet (new signup) or query failed
+        // Use auth metadata instead of blocking login
+        console.warn("[Auth] Profile fetch failed, using auth metadata fallback:", error?.message)
+        return {
+            id: supaUser.id,
+            name: supaUser.user_metadata?.full_name || supaUser.email?.split("@")[0] || "User",
+            email: supaUser.email || "",
+            role: (supaUser.user_metadata?.role as "student" | "admin") || "student",
+            isSpotifyLinked: getSpotifyEnabled(),
+        }
+    } catch (err) {
+        console.error("[Auth] fetchProfile crashed:", err)
+        // Still allow login with minimal info
+        return {
+            id: supaUser.id,
+            name: supaUser.email?.split("@")[0] || "User",
+            email: supaUser.email || "",
+            role: "student",
+            isSpotifyLinked: getSpotifyEnabled(),
+        }
     }
 }
 

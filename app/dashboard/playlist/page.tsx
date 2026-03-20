@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useSpotify, type SpotifyPlaylist, type SpotifyTrack } from "@/hooks/use-spotify"
+import { useGoogle, type YouTubePlaylist, type YouTubeTrack } from "@/hooks/use-google"
 import { useFocus } from "@/components/providers/focus-provider"
 
 // ─── Curated YouTube tracks ────────────────────────────────────────────────────
@@ -90,8 +91,18 @@ function TrackRow({ track, onPlay, isActive }: { track: SpotifyTrack; onPlay: (i
 }
 
 // ─── Playlist card ─────────────────────────────────────────────────────────────
-function PlaylistCard({ playlist, isActive, onClick }: { playlist: SpotifyPlaylist; isActive: boolean; onClick: () => void }) {
-  const img = playlist.images?.[0]?.url
+function PlaylistCard({ playlist, isActive, onClick, img }: { playlist: SpotifyPlaylist | YouTubePlaylist; isActive: boolean; onClick: () => void; img?: string }) {
+  const imageUrl = img || (// @ts-ignore
+    playlist.thumbnails?.medium?.url ||
+    // @ts-ignore
+    playlist.snippet?.thumbnails?.medium?.url ||
+    // @ts-ignore
+    playlist.images?.[0]?.url)
+    
+  // @ts-ignore
+  const name = playlist.name || playlist.snippet?.title || "Unknown Playlist"
+  const tracksText = "tracks" in playlist ? `${playlist.tracks.total} tracks` : "YouTube Playlist"
+
   return (
     <div
       onClick={onClick}
@@ -102,20 +113,56 @@ function PlaylistCard({ playlist, isActive, onClick }: { playlist: SpotifyPlayli
         transition: "all 0.25s", animation: "sonarFadeUp 0.4s ease both",
       }}
     >
-      {img
-        ? <img src={img} alt={playlist.name} style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover" }} />
+      {imageUrl
+        ? <img src={imageUrl} alt={name} style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover" }} />
         : <div style={{ width: "100%", aspectRatio: "1/1", background: "rgba(29,185,84,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "3rem" }}>🎵</div>}
       <div style={{ padding: "0.75rem" }}>
-        <div style={{ fontSize: "0.85rem", fontWeight: 600, color: isActive ? "#1DB954" : "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{playlist.name}</div>
-        <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", marginTop: "0.2rem" }}>{playlist.tracks.total} tracks</div>
+        <div style={{ fontSize: "0.85rem", fontWeight: 600, color: isActive ? "#1DB954" : "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+        <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", marginTop: "0.2rem" }}>{tracksText}</div>
       </div>
     </div>
   )
 }
 
+// ─── YouTube Track row ──────────────────────────────────────────────────────────
+function YTTrackRow({ track, onPlay, isActive }: { track: YouTubeTrack; onPlay: (id: string) => void; isActive: boolean }) {
+  const img = track.snippet?.thumbnails?.medium?.url
+  // Search returns id.videoId, PlaylistItems returns snippet.resourceId.videoId
+  const videoId = typeof track.id === "object" ? track.id.videoId : (track.snippet.resourceId?.videoId || track.id)
+  if (!videoId) return null
+
+  return (
+    <div
+      onClick={() => onPlay(videoId)}
+      style={{
+        display: "flex", alignItems: "center", gap: "0.85rem", padding: "0.75rem 1rem",
+        borderRadius: "0.75rem", cursor: "pointer",
+        background: isActive ? "rgba(255,0,0,0.12)" : "rgba(255,255,255,0.03)",
+        border: `1px solid ${isActive ? "rgba(255,0,0,0.4)" : "rgba(255,255,255,0.07)"}`,
+        transition: "all 0.2s", marginBottom: "0.5rem",
+      }}
+    >
+      {img && <img src={img} alt={track.snippet.title} style={{ width: 44, height: 44, borderRadius: "0.4rem", objectFit: "cover", flexShrink: 0 }} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: "0.9rem", fontWeight: 500, color: isActive ? "#ff4d4d" : "rgba(255,255,255,0.9)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{track.snippet.title}</div>
+        <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.45)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {track.snippet.channelTitle}
+        </div>
+      </div>
+      <span style={{ color: isActive ? "#ff4d4d" : "rgba(255,255,255,0.3)", flexShrink: 0 }}>
+        {isActive
+          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          : <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+      </span>
+    </div>
+  )
+}
+
+
 // ─── Main component ────────────────────────────────────────────────────────────
 export default function SonarPlaylist() {
   const spotify = useSpotify()
+  const google = useGoogle()
   const {
     sonarDuration: customDuration,
     setSonarDuration: setCustomDuration,
@@ -132,11 +179,16 @@ export default function SonarPlaylist() {
   const [notification, setNotification] = useState<{ text: string; show: boolean }>({ text: "", show: false })
   const [editingDuration, setEditingDuration] = useState(false)
   const notifTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  
   const [spotifyTab, setSpotifyTab] = useState<"my-playlists" | "search">("my-playlists")
+  const [ytTab, setYtTab] = useState<"my-playlists" | "search">("my-playlists")
 
   // Search state (local — fine to lose on navigation)
   const [searchResults, setSearchResults] = useState<{ tracks: SpotifyTrack[]; playlists: SpotifyPlaylist[] }>({ tracks: [], playlists: [] })
   const [searchLoading, setSearchLoading] = useState(false)
+  
+  const [ytSearchResults, setYtSearchResults] = useState<YouTubeTrack[]>([])
+  const [ytSearchLoading, setYtSearchLoading] = useState(false)
 
   const showNotification = (text: string) => {
     if (notifTimeout.current) clearTimeout(notifTimeout.current)
@@ -164,7 +216,15 @@ export default function SonarPlaylist() {
     const results = await spotify.searchSpotify(query)
     setSearchResults(results)
     setSearchLoading(false)
-  }, [spotify.searchSpotify])
+  }, [spotify])
+
+  const handleYtSearch = useCallback(async (query: string) => {
+    if (!query.trim()) { setYtSearchResults([]); return }
+    setYtSearchLoading(true)
+    const results = await google.searchYouTube(query)
+    setYtSearchResults(results)
+    setYtSearchLoading(false)
+  }, [google])
 
   return (
     <div className="sonar-wrapper">
@@ -225,47 +285,174 @@ export default function SonarPlaylist() {
               </div>
             )}
           </div>
+          
+          {/* YouTube/Google connect card */}
+          <div
+            className="sonar-status-card"
+            style={{ minWidth: "190px", cursor: "pointer", borderColor: google.isLoggedIn ? "#ff4d4d" : undefined }}
+            onClick={() => {
+              if (google.isLoggedIn) { google.logout(); showNotification("Google disconnected") }
+              else google.login()
+            }}
+          >
+            <div className="sonar-status-label" style={{ color: google.isLoggedIn ? "#ff4d4d" : undefined }}>
+              {google.isLoggedIn ? "Connected as" : "Platform"}
+            </div>
+            {google.isLoading ? (
+              <div className="sonar-status-value" style={{ fontSize: "0.85rem", color: "rgba(255,255,255,0.5)" }}>Loading…</div>
+            ) : google.isLoggedIn ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "center" }}>
+                {google.user?.picture && (
+                  <img src={google.user.picture} alt="avatar" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
+                )}
+                <div className="sonar-status-value" style={{ fontSize: "0.85rem", color: "#ff4d4d", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {google.user?.name || "YouTube"}
+                </div>
+              </div>
+            ) : (
+              <div className="sonar-status-value" style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "center" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="#ff4d4d"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
+                Connect YouTube
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── YouTube Sonar Tracks ── */}
-      <section className="sonar-query-section">
-        <h2 className="sonar-section-title">BUILT-IN SONAR FREQUENCIES</h2>
-        <div className="sonar-query-grid">
-          {SONAR_TRACKS.map((item, i) => {
-            const isActive = activeVideoId === item.videoId
-            const isPlaying = isActive && isSonarPlaying
-            return (
-              <div
-                key={item.videoId}
-                className={`sonar-query-card${isActive ? " sonar-playing" : ""}`}
-                style={{ animationDelay: `${0.3 + i * 0.08}s` }}
-                onClick={() => handleSonarClick(item.videoId)}
-              >
-                <div style={{ display: "flex", alignItems: "center" }}>
-                  <span className="sonar-query-text">{item.text}</span>
-                  <div className="sonar-visualizer">
-                    {[0.3, 0.6, 1, 0.4].map((h, j) => (
-                      <div key={j} className="sonar-bar" style={{ height: `${h * 100}%`, animationDelay: `${j * 0.1}s` }} />
+      {/* ── YouTube Section ── */}
+      <section className="sonar-query-section" style={{ marginTop: "3rem" }}>
+        {google.isLoggedIn ? (
+          /* ── YouTube LOGGED IN ── */
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+              <h2 className="sonar-section-title" style={{ color: "#ff4d4d", margin: 0, flex: 1 }}>YOUTUBE LIBRARY</h2>
+            </div>
+            
+            {/* Tab bar */}
+            <div style={{ display: "flex", gap: "0", borderBottom: "1px solid rgba(255,255,255,0.1)", marginBottom: "1.5rem" }}>
+              {(["my-playlists", "search"] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setYtTab(tab)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer", padding: "0.65rem 1.5rem",
+                    fontSize: "0.82rem", fontWeight: 700, letterSpacing: "1px",
+                    color: ytTab === tab ? "#ff4d4d" : "rgba(255,255,255,0.45)",
+                    borderBottom: ytTab === tab ? "2px solid #ff4d4d" : "2px solid transparent",
+                    transition: "color 0.2s", textTransform: "uppercase",
+                  }}
+                >
+                  {tab === "my-playlists" ? "My Playlists" : "Search"}
+                </button>
+              ))}
+            </div>
+
+            {/* ── YouTube My Playlists tab ── */}
+            {ytTab === "my-playlists" && (
+              <>
+                {google.ytPlaylistsLoading && google.ytPlaylists.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "3rem", color: "rgba(255,255,255,0.4)" }}>
+                    <div style={{ width: 32, height: 32, border: "3px solid rgba(255,77,77,0.2)", borderTop: "3px solid #ff4d4d", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 1rem" }} />
+                    Loading your YouTube playlists…
+                  </div>
+                ) : google.ytPlaylists.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "3rem 0" }}>
+                    <div style={{ fontSize: "2rem", marginBottom: "0.75rem" }}>📺</div>
+                    <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: "1.25rem" }}>No valid YouTube playlists found.</p>
+                    <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+                      <button
+                        onClick={() => google.fetchYtPlaylists()}
+                        style={{ background: "#ff4d4d", color: "#000", border: "none", borderRadius: "2rem", padding: "0.6rem 1.5rem", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}
+                      >
+                        ↻ Retry
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "1rem" }}>
+                    {google.ytPlaylists.map(pl => (
+                      <PlaylistCard
+                        key={pl.id}
+                        playlist={pl}
+                        isActive={activeVideoId === pl.id}
+                        onClick={() => { playSonarTrack(pl.id, "playlist"); showNotification(pl.snippet.title) }}
+                      />
                     ))}
                   </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                  <span className="sonar-play-status" style={{ opacity: isActive ? 1 : 0 }}>
-                    {isActive && !isSonarPlaying ? "PAUSED" : "PLAYING"}
-                  </span>
-                  <span className="sonar-copy-icon">
-                    {isPlaying
-                      ? <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                      : isActive
-                        ? <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                        : <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+                )}
+                {google.ytPlaylistsLoading && google.ytPlaylists.length > 0 && (
+                  <p style={{ textAlign: "center", fontSize: "0.75rem", color: "rgba(255,255,255,0.3)", marginTop: "1rem" }}>Refreshing…</p>
+                )}
+              </>
+            )}
+
+            {/* ── YouTube Search tab ── */}
+            {ytTab === "search" && (
+              <>
+                <SearchBar onSearch={handleYtSearch} />
+                {ytSearchLoading && (
+                  <div style={{ textAlign: "center", padding: "2rem" }}>
+                    <div style={{ width: 28, height: 28, border: "3px solid rgba(255,77,77,0.2)", borderTop: "3px solid #ff4d4d", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto" }} />
+                  </div>
+                )}
+                {!ytSearchLoading && ytSearchResults.length > 0 && (
+                  <>
+                    <h3 style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "0.75rem" }}>Videos</h3>
+                    {ytSearchResults.map(track => {
+                      const videoId = typeof track.id === "object" ? track.id.videoId : track.id
+                      return (
+                        <YTTrackRow key={videoId} track={track} isActive={activeVideoId === videoId} onPlay={id => { playSonarTrack(id, "track"); showNotification(track.snippet.title) }} />
+                      )
+                    })}
+                  </>
+                )}
+                {!ytSearchLoading && ytSearchResults.length === 0 && (
+                  <div style={{ textAlign: "center", padding: "3rem 0", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>Start typing to search YouTube</div>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          /* ── YouTube NOT LOGGED IN ── */
+          <>
+            <h2 className="sonar-section-title">BUILT-IN SONAR FREQUENCIES</h2>
+            <div className="sonar-query-grid">
+              {SONAR_TRACKS.map((item, i) => {
+                const isActive = activeVideoId === item.videoId
+                const isPlaying = isActive && isSonarPlaying
+                return (
+                  <div
+                    key={item.videoId}
+                    className={`sonar-query-card${isActive ? " sonar-playing" : ""}`}
+                    style={{ animationDelay: `${0.3 + i * 0.08}s` }}
+                    onClick={() => handleSonarClick(item.videoId)}
+                  >
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <span className="sonar-query-text">{item.text}</span>
+                      <div className="sonar-visualizer">
+                        {[0.3, 0.6, 1, 0.4].map((h, j) => (
+                          <div key={j} className="sonar-bar" style={{ height: `${h * 100}%`, animationDelay: `${j * 0.1}s` }} />
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                      <span className="sonar-play-status" style={{ opacity: isActive ? 1 : 0 }}>
+                        {isActive && !isSonarPlaying ? "PAUSED" : "PLAYING"}
+                      </span>
+                      <span className="sonar-copy-icon">
+                        {isPlaying
+                          ? <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                          : isActive
+                            ? <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            : <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
       </section>
 
       {/* ── Spotify Section ── */}

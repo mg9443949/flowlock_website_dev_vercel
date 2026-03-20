@@ -21,9 +21,12 @@ export const SPOTIFY_PLAYLISTS = [
 
 interface YTPlayer {
     loadVideoById: (id: string) => void
+    loadPlaylist: (args: { list: string }) => void
     playVideo: () => void
     pauseVideo: () => void
     getPlayerState: () => number
+    setVolume: (volume: number) => void
+    unMute: () => void
     destroy: () => void
 }
 
@@ -65,7 +68,7 @@ interface FocusContextType {
     // YouTube Sonar Player
     sonarActiveId: string | null
     isSonarPlaying: boolean
-    playSonarTrack: (videoId: string) => void
+    playSonarTrack: (id: string, type?: "track" | "playlist") => void
     playNextSonarTrack: () => void
 
     // Spotify Player (hidden SDK)
@@ -226,7 +229,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         setSpotifyActiveUri(null)
     }, [])
 
-    const playSonarTrack = useCallback((videoId: string) => {
+    const playSonarTrack = useCallback((id: string, type: "track" | "playlist" = "track") => {
         if (!ytPlayerReady || !ytPlayerRef.current) return
         
         // Pause Spotify if playing
@@ -235,16 +238,23 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             setIsSpotifyPlaying(false)
         }
 
-        if (sonarActiveId === videoId) {
+        if (sonarActiveId === id) {
             const state = ytPlayerRef.current.getPlayerState()
             if (state === 1) { ytPlayerRef.current.pauseVideo(); setIsSonarPlaying(false) }
             else { ytPlayerRef.current.playVideo(); setIsSonarPlaying(true) }
             return
         }
-        setSonarActiveId(videoId)
+        setSonarActiveId(id)
         setIsSonarPlaying(true)
-        ytPlayerRef.current.loadVideoById(videoId)
+        if (type === "playlist") {
+            ytPlayerRef.current.loadPlaylist({ list: id })
+        } else {
+            ytPlayerRef.current.loadVideoById(id)
+        }
+        // Ensure playback starts and audio is audible
         ytPlayerRef.current.playVideo()
+        ytPlayerRef.current.unMute()
+        ytPlayerRef.current.setVolume(100)
     }, [ytPlayerReady, sonarActiveId, isSpotifyPlaying])
 
     const playNextSonarTrack = useCallback(() => {
@@ -285,8 +295,15 @@ export function FocusProvider({ children }: { children: ReactNode }) {
     const toggleAllMusic = useCallback(() => {
         if (sonarActiveId && ytPlayerRef.current) {
             const state = ytPlayerRef.current.getPlayerState()
-            if (state === 1) { ytPlayerRef.current.pauseVideo(); setIsSonarPlaying(false) }
-            else { ytPlayerRef.current.playVideo(); setIsSonarPlaying(true) }
+            if (state === 1) {
+                ytPlayerRef.current.pauseVideo()
+                setIsSonarPlaying(false)
+            } else {
+                ytPlayerRef.current.playVideo()
+                ytPlayerRef.current.unMute()
+                ytPlayerRef.current.setVolume(100)
+                setIsSonarPlaying(true)
+            }
         } else if (spotifyActiveUri && spotifyPlayerRef.current) {
             spotifyPlayerRef.current.togglePlay()
         }
@@ -327,7 +344,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             setSpotifyEmbed,
         }}>
             {/* Hidden audio players */}
-            <div id="sonar-global-player" style={{ display: "none" }} />
+            <div id="sonar-global-player" style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none', overflow: 'hidden' }} />
             <div id="spotify-global-player" style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', top: '-1000px' }} />
 
             {children}
