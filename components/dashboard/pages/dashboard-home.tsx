@@ -103,12 +103,19 @@ export function DashboardHome({ user, lastFocusSession }: DashboardHomeProps) {
         sevenDaysAgo.setDate(now.getDate() - 6)
         sevenDaysAgo.setHours(0, 0, 0, 0)
 
-        const { data: recentSessions } = await supabase
-          .from("study_sessions")
-          .select("started_at, duration_ms, focus_score")
-          .eq("user_id", user.id)
-          .gte("started_at", sevenDaysAgo.toISOString())
-          .order("started_at", { ascending: true })
+        const timeoutPromise = new Promise<any>((_, reject) => 
+          setTimeout(() => reject(new Error("Supabase query timed out")), 10000)
+        )
+
+        const { data: recentSessions } = await Promise.race([
+          supabase
+            .from("study_sessions")
+            .select("started_at, duration_ms, focus_score")
+            .eq("user_id", user.id)
+            .gte("started_at", sevenDaysAgo.toISOString())
+            .order("started_at", { ascending: true }),
+          timeoutPromise
+        ])
 
         // Build daily bar chart data for last 7 days
         const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]

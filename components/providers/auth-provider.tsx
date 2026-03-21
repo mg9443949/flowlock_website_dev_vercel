@@ -131,8 +131,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const login = async (email: string, password: string): Promise<{ error?: string }> => {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) return { error: error.message }
+
+        if (data.session?.user) {
+            const profile = await fetchProfile(data.session.user)
+            if (profile) {
+                setUser(profile)
+                setIsAuthenticated(true)
+            }
+        }
+        
         router.push("/dashboard")
         return {}
     }
@@ -151,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const signup = async (email: string, password: string, name: string): Promise<{ error?: string }> => {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
             email,
             password,
             options: {
@@ -159,8 +168,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             },
         })
         if (error) return { error: error.message }
-        router.push("/dashboard")
-        return {}
+
+        if (data.session?.user) {
+            const profile = await fetchProfile(data.session.user)
+            if (profile) {
+                setUser(profile)
+                setIsAuthenticated(true)
+            }
+            router.push("/dashboard")
+            return {}
+        } else {
+            // If there's no session immediately, Supabase is waiting for email confirmation
+            return { error: "Please check your email to verify your account before logging in." }
+        }
     }
 
     const logout = async () => {
