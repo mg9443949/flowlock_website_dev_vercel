@@ -131,6 +131,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const login = async (email: string, password: string): Promise<{ error?: string }> => {
+        if (!supabase) {
+            return { error: "Missing database configuration. Please add Supabase environment variables to Vercel and redeploy." }
+        }
+
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) return { error: error.message }
 
@@ -160,6 +164,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const signup = async (email: string, password: string, name: string): Promise<{ error?: string }> => {
+        if (!supabase) {
+            return { error: "Missing database configuration. Please add Supabase environment variables to Vercel and redeploy." }
+        }
+
         const { data, error } = await supabase.auth.signUp({
             email,
             password,
@@ -185,12 +193,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const logout = async () => {
-        const { error } = await supabase.auth.signOut()
-        if (error) console.error("Error during logout:", error)
-
-        setUser(null)
-        setIsAuthenticated(false)
-        router.push("/")
+        setIsLoading(true)
+        try {
+            if (supabase) {
+                await supabase.auth.signOut()
+            }
+        } catch (error) {
+            console.error("Logout error (e.g. Supabase misconfigured or offline):", error)
+        } finally {
+            setUser(null)
+            setIsAuthenticated(false)
+            setIsLoading(false)
+            router.push("/")
+        }
     }
 
     const updateProfile = async (userData: Partial<AuthUser>) => {
