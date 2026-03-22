@@ -165,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             password,
             options: {
                 data: { full_name: name, role: "student" },
+                emailRedirectTo: `${window.location.origin}/dashboard`,
             },
         })
         if (error) return { error: error.message }
