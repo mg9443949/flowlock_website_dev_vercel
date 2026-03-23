@@ -401,6 +401,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
     // Start session
     const handleStart = useCallback(async () => {
+        if (isRunningRef.current) return;
+        isRunningRef.current = true;
+        
         try {
             // Request Notification Permissions if needed
             if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
@@ -703,9 +706,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
         // Update the dashboard instantly with this session
         setLastFocusSession(sessionResult)
-        // Route to the productivity report for automatic sync & review
-        router.push("/dashboard/productivity?autoSync=true")
-    }, [onSessionComplete, router])
+        // Route to the productivity report for automatic sync & review & download
+        router.push("/dashboard/productivity?autoSync=true&autoDownload=true")
+    }, [onSessionComplete, router, setLastFocusSession])
 
     const handleDownloadReport = useCallback(async () => {
         if (!result) return

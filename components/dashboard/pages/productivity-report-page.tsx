@@ -228,7 +228,9 @@ export function ProductivityReportPage() {
     const { user } = useAuth()
     const searchParams = useSearchParams()
     const autoSync = searchParams.get("autoSync")
+    const autoDownload = searchParams.get("autoDownload")
     const hasAutoSynced = useRef(false)
+    const hasAutoDownloaded = useRef(false)
     const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0])
     const [report, setReport] = useState<ReportData | null>(null)
     const [loading, setLoading] = useState(true)
@@ -281,6 +283,14 @@ export function ProductivityReportPage() {
             handleFetchFromAW()
         }
     }, [autoSync, awStatus])
+
+    useEffect(() => {
+        if (autoDownload === "true" && report && !hasAutoDownloaded.current && !loading) {
+            hasAutoDownloaded.current = true
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            handleDownloadPDF()
+        }
+    }, [autoDownload, report, loading])
 
     /* ── on-demand fetch from AW ─────────────────────────────── */
 
