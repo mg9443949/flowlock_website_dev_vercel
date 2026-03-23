@@ -835,7 +835,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                         <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
                                             <Button
                                                 size="lg"
-                                                onClick={handleStart}
+                                                onClick={() => router.push("/dashboard/study")}
                                                 className="gap-2 text-base px-8"
                                             >
                                                 <Play size={20} />

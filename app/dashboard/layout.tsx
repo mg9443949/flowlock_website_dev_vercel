@@ -42,8 +42,17 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     const isOnFocusPage = pathname === "/dashboard/focus"
     const isStudent = user?.role === "student"
 
-    // Show the FocusTracker when: on the focus page OR a session is active
-    const shouldMountTracker = isStudent && (isOnFocusPage || isFocusActive)
+    const [hasMountedTracker, setHasMountedTracker] = useState(false)
+
+    useEffect(() => {
+        if (isStudent && (isOnFocusPage || isFocusActive)) {
+            setHasMountedTracker(true)
+        }
+    }, [isStudent, isOnFocusPage, isFocusActive])
+
+    // Show the FocusTracker when: on the focus page OR a session is active.
+    // Once mounted, it NEVER unmounts, to prevent destroying background database saves.
+    const shouldMountTracker = hasMountedTracker
 
     useEffect(() => {
         if (!isAuthenticated) {
