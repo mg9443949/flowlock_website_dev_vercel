@@ -87,6 +87,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Safety net: never stay in loading state longer than 5 seconds
         const timeout = setTimeout(() => setIsLoading(false), 5000)
 
+        // Guard: if env vars are missing, fail fast
+        if (!supabase) {
+            console.error("[Auth] Supabase client is null — NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is missing. Check your .env.local file.")
+            clearTimeout(timeout)
+            setIsLoading(false)
+            return
+        }
+
         // Check existing session on mount
         const initSession = async () => {
             try {
