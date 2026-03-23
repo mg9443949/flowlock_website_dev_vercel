@@ -135,19 +135,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return { error: "Missing database configuration. Please add Supabase environment variables to Vercel and redeploy." }
         }
 
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) return { error: error.message }
+        const timeoutPromise = new Promise<any>((_, reject) => 
+            setTimeout(() => reject(new Error("Network timeout: Supabase connection was blocked or dropped.")), 10000)
+        )
 
-        if (data.session?.user) {
-            const profile = await fetchProfile(data.session.user)
-            if (profile) {
-                setUser(profile)
-                setIsAuthenticated(true)
+        try {
+            const { data, error } = await Promise.race([
+                supabase.auth.signInWithPassword({ email, password }),
+                timeoutPromise
+            ])
+
+            if (error) return { error: error.message }
+
+            if (data.session?.user) {
+                const profile = await Promise.race([
+                    fetchProfile(data.session.user),
+                    timeoutPromise
+                ])
+                if (profile) {
+                    setUser(profile)
+                    setIsAuthenticated(true)
+                }
             }
+            
+            router.push("/dashboard")
+            return {}
+        } catch (err: any) {
+            return { error: err.message || "Network connection failed. Please disable your adblocker or firewall." }
         }
-        
-        router.push("/dashboard")
-        return {}
     }
 
     const demoLogin = () => {
@@ -168,43 +183,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return { error: "Missing database configuration. Please add Supabase environment variables to Vercel and redeploy." }
         }
 
-        const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: { full_name: name, role: "student" },
-                emailRedirectTo: `${window.location.origin}/dashboard`,
-            },
-        })
-        if (error) return { error: error.message }
+        const timeoutPromise = new Promise<any>((_, reject) => 
+            setTimeout(() => reject(new Error("Network timeout: Supabase connection was blocked or dropped.")), 10000)
+        )
 
-        if (data.session?.user) {
-            const profile = await fetchProfile(data.session.user)
-            if (profile) {
-                setUser(profile)
-                setIsAuthenticated(true)
+        try {
+            const { data, error } = await Promise.race([
+                supabase.auth.signUp({
+                    email,
+                    password,
+                    options: {
+                        data: { full_name: name, role: "student" },
+                        emailRedirectTo: `${window.location.origin}/dashboard`,
+                    },
+                }),
+                timeoutPromise
+            ])
+
+            if (error) return { error: error.message }
+
+            if (data.session?.user) {
+                const profile = await Promise.race([
+                    fetchProfile(data.session.user),
+                    timeoutPromise
+                ])
+                if (profile) {
+                    setUser(profile)
+                    setIsAuthenticated(true)
+                }
+                router.push("/dashboard")
+                return {}
+            } else {
+                // If there's no session immediately, Supabase is waiting for email confirmation
+                return { error: "Please check your email to verify your account before logging in." }
             }
-            router.push("/dashboard")
-            return {}
-        } else {
-            // If there's no session immediately, Supabase is waiting for email confirmation
-            return { error: "Please check your email to verify your account before logging in." }
+        } catch (err: any) {
+            return { error: err.message || "Network connection failed. Please disable your adblocker or firewall." }
         }
     }
 
-    const logout = async () => {
-        setIsLoading(true)
-        try {
-            if (supabase) {
-                await supabase.auth.signOut()
-            }
-        } catch (error) {
-            console.error("Logout error (e.g. Supabase misconfigured or offline):", error)
-        } finally {
-            setUser(null)
-            setIsAuthenticated(false)
-            setIsLoading(false)
-            router.push("/")
+    const logout = () => {
+        // Optimistic, instant local logout guarantees the UI functions offline
+        setUser(null)
+        setIsAuthenticated(false)
+        router.push("/")
+        
+        // Background network logout (fire and forget)
+        if (supabase) {
+            supabase.auth.signOut().catch(error => {
+                console.error("Logout network error (e.g. Supabase offline or blocked):", error)
+            })
         }
     }
 
