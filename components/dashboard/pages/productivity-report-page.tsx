@@ -231,6 +231,7 @@ export function ProductivityReportPage() {
     const autoDownload = searchParams.get("autoDownload")
     const hasAutoSynced = useRef(false)
     const hasAutoDownloaded = useRef(false)
+    const [syncComplete, setSyncComplete] = useState(false)
     const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0])
     const [report, setReport] = useState<ReportData | null>(null)
     const [loading, setLoading] = useState(true)
@@ -278,19 +279,24 @@ export function ProductivityReportPage() {
     }, [fetchReport])
 
     useEffect(() => {
-        if (autoSync === "true" && awStatus === "online" && !hasAutoSynced.current) {
-            hasAutoSynced.current = true
-            handleFetchFromAW()
+        if (autoSync === "true") {
+            if (awStatus === "online" && !hasAutoSynced.current) {
+                hasAutoSynced.current = true
+                handleFetchFromAW()
+            } else if (awStatus === "offline") {
+                setSyncComplete(true)
+            }
         }
     }, [autoSync, awStatus])
 
     useEffect(() => {
-        if (autoDownload === "true" && report && !hasAutoDownloaded.current && !loading) {
+        const isSyncReady = autoSync === "true" ? syncComplete : true;
+        if (autoDownload === "true" && report && !hasAutoDownloaded.current && !loading && isSyncReady) {
             hasAutoDownloaded.current = true
             // eslint-disable-next-line react-hooks/exhaustive-deps
             handleDownloadPDF()
         }
-    }, [autoDownload, report, loading])
+    }, [autoDownload, autoSync, syncComplete, report, loading])
 
     /* ── on-demand fetch from AW ─────────────────────────────── */
 
@@ -302,13 +308,17 @@ export function ProductivityReportPage() {
             const awData = await fetchAWDataForDate(selectedDate)
             if (!awData) {
                 setLoading(false)
+                setSyncComplete(true)
                 return
             }
 
             // Upload to backend
             const { data: { session } } = await supabase.auth.getSession()
             const token = session?.access_token
-            if (!token) return
+            if (!token) {
+                setSyncComplete(true)
+                return
+            }
 
             await fetch("/api/productivity/upload", {
                 method: "POST",
@@ -324,9 +334,11 @@ export function ProductivityReportPage() {
 
             // Re-fetch report
             await fetchReport()
+            setSyncComplete(true)
         } catch (e) {
             console.error("Failed to fetch from AW:", e)
             setLoading(false)
+            setSyncComplete(true)
         }
     }
 

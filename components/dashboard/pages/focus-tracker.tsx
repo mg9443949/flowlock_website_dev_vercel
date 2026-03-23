@@ -463,8 +463,8 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             startTimeRef.current = Date.now()
             updateStatusUI("✓ Focused", "focused")
 
-            // Signal to provider that session is active
-            startFocusSession()
+            // Signal to provider that session is active (preserving existing target)
+            startFocusSession(targetDurationRef.current || undefined)
 
             // Duration ticker
             durationIntervalRef.current = setInterval(() => {
