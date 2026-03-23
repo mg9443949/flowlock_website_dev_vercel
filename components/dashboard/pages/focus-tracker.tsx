@@ -9,7 +9,6 @@ import Script from "next/script"
 import type { FaceLandmarker as FaceLandmarkerType } from "@mediapipe/tasks-vision"
 import { useNoiseDetector } from "@/hooks/use-noise-detector"
 import { useAuth } from "@/components/providers/auth-provider"
-import { useFocus } from "@/components/providers/focus-provider"
 import { usePomodoro } from "@/components/providers/pomodoro-provider"
 import { supabase } from "@/utils/supabase/client"
 import { toast } from "sonner"
@@ -97,9 +96,15 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
     const durationIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const authIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const isUnauthorizedRef = useRef<boolean>(false)
-    const hasDownloadedRef = useRef<boolean>(false)
     const processDetectionRef = useRef<(faceLandmarks: any[], ctx: CanvasRenderingContext2D) => void>(() => { })
     const authenticateFaceRef = useRef(authenticateFace)
+
+    // Fix: Keep a live ref to the targetDuration so the internal setInterval never reads stale closure data
+    const targetDurationRef = useRef<number | null>(targetDuration)
+    useEffect(() => { targetDurationRef.current = targetDuration }, [targetDuration])
+
+    // Smart Break History
+    const lastDistractionCountRef = useRef(0)
 
     // Register noise alert callback
     useEffect(() => {
@@ -461,8 +466,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 setFocusElapsed(elapsedSec)
 
                 let displaySec = elapsedSec
-                if (targetDuration) {
-                    const remaining = Math.max(0, targetDuration - elapsedSec)
+                // Fix: Evaluate using the dynamically updated ref
+                if (targetDurationRef.current) {
+                    const remaining = Math.max(0, targetDurationRef.current - elapsedSec)
                     displaySec = remaining
                     if (remaining <= 0) {
                         // Auto-stop when target is reached
@@ -470,6 +476,56 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                         return
                     }
                 }
+
+                // ── Smart Break Suggester (Evaluates every 5 minutes) ──
+                if (elapsedSec > 0 && elapsedSec % 300 === 0) {
+                    const now = Date.now()
+                    const twentyMinsAgo = now - 20 * 60 * 1000
+                    
+                    // Count unique distracting events in the last 20 mins
+                    const recentEvents = historyRef.current.filter(
+                        (e) => e.start && e.type !== "FOCUSED" && e.time > twentyMinsAgo
+                    )
+                    const count = recentEvents.length
+                    const accel = count - lastDistractionCountRef.current
+                    lastDistractionCountRef.current = count
+
+                    const firstName = user?.name?.split(" ")[0] || "there"
+
+                    // If user focused for 90+ mins continuously
+                    if (elapsedSec >= 90 * 60) {
+                        toast.message(`Hey ${firstName}, you've been working deeply for over 90 minutes!`, {
+                            description: "Your brain needs a reset. I strongly suggest a 15-minute break now.",
+                            duration: 10000,
+                            icon: "🧠",
+                        })
+                    } else if (count >= 4) {
+                        const breakTime = count >= 6 ? "15min" : "10min"
+                        toast.warning(`Hey ${firstName}, you've had ${count} distractions recently.`, {
+                            description: `You're showing signs of fatigue. A ${breakTime} break will massively boost your focus!`,
+                            duration: 8000,
+                            icon: "☕",
+                        })
+                    } else if (accel >= 2) {
+                        toast.warning(`Focus is slipping, ${firstName}.`, {
+                            description: "Your distraction rate is accelerating. Try to recenter or take a quick 5min breather.",
+                            duration: 6000,
+                            icon: "⚠️",
+                        })
+                    } else {
+                        // Going well
+                        const compliments = [
+                            `You are entirely locked in, ${firstName}. Beautiful focus!`,
+                            `No breaks needed. You're in a total flow state!`,
+                            `Immaculate concentration over the last 5 minutes. Keep it up!`,
+                        ]
+                        toast.success(compliments[Math.floor(Math.random() * compliments.length)], {
+                            duration: 4000,
+                            icon: "✨",
+                        })
+                    }
+                }
+
             }, 1000) as unknown as NodeJS.Timeout
 
             // Background auth interval (in-browser using face-api)
