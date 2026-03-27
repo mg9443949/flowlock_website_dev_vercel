@@ -412,6 +412,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
             setPhase("active")
 
+            // Signal to provider that session is active (preserving existing target)
+            startFocusSession(targetDurationRef.current || undefined)
+
             // Reset state
             timersRef.current = { drowsy: 0, faceMissing: 0, headTurned: 0, unauthorized: 0 }
             statsRef.current = { drowsyCount: 0, faceMissingCount: 0, headTurnedCount: 0, unauthorizedCount: 0 }
@@ -462,9 +465,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             isRunningRef.current = true
             startTimeRef.current = Date.now()
             updateStatusUI("✓ Focused", "focused")
-
-            // Signal to provider that session is active (preserving existing target)
-            startFocusSession(targetDurationRef.current || undefined)
 
             // Duration ticker
             durationIntervalRef.current = setInterval(() => {
