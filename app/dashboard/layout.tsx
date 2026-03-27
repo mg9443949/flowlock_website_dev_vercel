@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/dialog"
 
 function DashboardInner({ children }: { children: React.ReactNode }) {
-    const { user, isAuthenticated, logout } = useAuth()
+    const { user, isAuthenticated, isLoading, logout } = useAuth()
     const { isFocusActive, focusElapsed, targetDuration, stopFocusSession, setLastFocusSession } = useFocus()
     const router = useRouter()
     const pathname = usePathname()
@@ -105,6 +105,28 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
         } finally {
             setStartingAW(false)
         }
+    }
+
+    if (isLoading) {
+        return (
+            <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100vh",
+                background: "#09090b",
+            }}>
+                <div style={{
+                    width: 40,
+                    height: 40,
+                    border: "3px solid #27272a",
+                    borderTop: "3px solid #a855f7",
+                    borderRadius: "50%",
+                    animation: "spin 0.8s linear infinite",
+                }} />
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+        )
     }
 
     if (!user) return null

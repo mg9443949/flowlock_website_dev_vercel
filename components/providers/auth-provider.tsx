@@ -84,8 +84,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const router = useRouter()
 
     useEffect(() => {
-        // Safety net: never stay in loading state longer than 5 seconds
-        const timeout = setTimeout(() => setIsLoading(false), 5000)
+        // Safety net: never stay in loading state longer than 3 seconds
+        const timeout = setTimeout(() => setIsLoading(false), 3000)
 
         // Guard: if env vars are missing, fail fast
         if (!supabase) {
@@ -243,28 +243,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser((prev) => prev ? { ...prev, isSpotifyLinked: enabled } : prev)
     }
 
-    if (isLoading) {
-        return (
-            <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "100vh",
-                background: "#09090b",
-            }}>
-                <div style={{
-                    width: 40,
-                    height: 40,
-                    border: "3px solid #27272a",
-                    borderTop: "3px solid #a855f7",
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                }} />
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </div>
-        )
-    }
-
+    // Don't block rendering — let public pages (like sign-in) through immediately.
+    // The dashboard layout handles auth-gating with isLoading internally.
     return (
         <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, demoLogin, signup, logout, updateProfile, setSpotifyEnabled }}>
             {children}
