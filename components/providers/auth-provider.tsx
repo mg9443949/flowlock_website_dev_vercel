@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const timeoutPromise = new Promise<any>((_, reject) => 
-            setTimeout(() => reject(new Error("Network timeout: Supabase connection was blocked or dropped.")), 10000)
+            setTimeout(() => reject(new Error("Network timeout: Supabase connection was blocked or dropped. If the database was asleep, it may take up to 60s to wake up. Please try again.")), 45000)
         )
 
         try {
@@ -192,7 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const timeoutPromise = new Promise<any>((_, reject) => 
-            setTimeout(() => reject(new Error("Network timeout: Supabase connection was blocked or dropped.")), 10000)
+            setTimeout(() => reject(new Error("Network timeout: Supabase connection was blocked or dropped. If the database was asleep, it may take up to 60s to wake up. Please try again.")), 45000)
         )
 
         try {
