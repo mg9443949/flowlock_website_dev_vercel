@@ -20,7 +20,12 @@ import { LogOut, Settings, User, Eye, Square, AlertCircle, Play, Loader2 } from 
 import { useRouter, usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { FocusTracker } from "@/components/dashboard/pages/focus-tracker"
+import dynamic from "next/dynamic"
+
+const FocusTracker = dynamic(
+    () => import("@/components/dashboard/pages/focus-tracker").then(mod => mod.FocusTracker),
+    { ssr: false }
+)
 import {
     Dialog,
     DialogContent,

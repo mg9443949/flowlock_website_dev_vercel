@@ -62,6 +62,9 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null
 }
 
+import { useAuth } from "@/components/providers/auth-provider"
+import { useFocus } from "@/components/providers/focus-provider"
+
 // Helper: ms to hours
 function msToHours(ms: number) {
   return +(ms / (1000 * 60 * 60)).toFixed(1)
@@ -72,7 +75,9 @@ function msToMinutes(ms: number) {
   return Math.round(ms / (1000 * 60))
 }
 
-export function DashboardHome({ user, lastFocusSession }: DashboardHomeProps) {
+export default function DashboardHome() {
+  const { user } = useAuth()
+  const { lastFocusSession } = useFocus()
   const [isLoading, setIsLoading] = useState(true)
   const [dailyData, setDailyData] = useState<any[]>([])
   const [totalStudyMs, setTotalStudyMs] = useState(0)
@@ -84,6 +89,8 @@ export function DashboardHome({ user, lastFocusSession }: DashboardHomeProps) {
   const [totalDistractedMs, setTotalDistractedMs] = useState(0)
   const [streakDays, setStreakDays] = useState(0)
   const [motivationalQuote, setMotivationalQuote] = useState<{ text: string; author: string } | null>(null)
+
+  if (!user) return null
 
   // Pick a daily-rotating quote if the pref is enabled
   useEffect(() => {
@@ -111,7 +118,7 @@ export function DashboardHome({ user, lastFocusSession }: DashboardHomeProps) {
           supabase
             .from("study_sessions")
             .select("started_at, duration_ms, focus_score")
-            .eq("user_id", user.id)
+            .eq("user_id", user?.id)
             .gte("started_at", sevenDaysAgo.toISOString())
             .order("started_at", { ascending: true }),
           timeoutPromise
@@ -158,7 +165,7 @@ export function DashboardHome({ user, lastFocusSession }: DashboardHomeProps) {
     }
 
     fetchData()
-  }, [user.id, lastFocusSession])
+  }, [user?.id, lastFocusSession])
 
   // Compute productivity distribution from real data
   const productivePercent = totalStudyMs > 0 ? Math.round((totalFocusedMs / totalStudyMs) * 100) : 0

@@ -18,7 +18,7 @@ const GESTURE_GUIDE = [
   { gesture: "✊ Fist", action: "Scroll down" },
 ]
 
-export function GamesPage() {
+export default function GamesPage() {
   const [selectedGame, setSelectedGame] = useState<string | null>(null)
   
   // Custom Web-Native Hook

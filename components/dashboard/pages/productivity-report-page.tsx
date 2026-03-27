@@ -224,7 +224,7 @@ async function fetchAWDataForDate(dateStr: string): Promise<{
 
 /* ── main component ────────────────────────────────────────── */
 
-export function ProductivityReportPage() {
+export default function ProductivityReportPage() {
     const { user } = useAuth()
     const searchParams = useSearchParams()
     const autoSync = searchParams.get("autoSync")

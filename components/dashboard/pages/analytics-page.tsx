@@ -597,7 +597,7 @@ function YearlyView({ userId }: { userId: string }) {
 
 /* ── main component ────────────────────────────────────────── */
 
-export function AnalyticsPage() {
+export default function AnalyticsPage() {
   const [period, setPeriod] = useState<Period>("Daily")
   const { user } = useAuth()
   const [isExporting, setIsExporting] = useState(false)
