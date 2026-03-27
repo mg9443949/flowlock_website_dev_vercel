@@ -15,6 +15,7 @@ import {
     ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts"
 import AIInsightsPanel from "./ai-insights-panel"
+import { awFetch, isAWOnline } from "@/utils/aw-client"
 
 /* ── types ─────────────────────────────────────────────────── */
 
@@ -134,17 +135,6 @@ function EmptyState({ title, message }: { title: string; message: string }) {
     )
 }
 
-/* ── AW proxy fetch helper ─────────────────────────────────── */
-// All AW calls go through /api/aw-proxy to avoid CORS issues
-
-async function awProxy(endpoint: string) {
-    const resp = await fetch(`/api/aw-proxy?endpoint=${encodeURIComponent(endpoint)}`, {
-        signal: AbortSignal.timeout(6000),
-    })
-    if (!resp.ok) throw new Error(`AW proxy error: ${resp.status}`)
-    return resp.json()
-}
-
 async function fetchAWDataForDate(dateStr: string): Promise<{
     applications: AppUsage[]
     websites: WebsiteUsage[]
@@ -152,7 +142,7 @@ async function fetchAWDataForDate(dateStr: string): Promise<{
     total_active_minutes: number
 } | null> {
     try {
-        const buckets = await awProxy("buckets")
+        const buckets = await awFetch("buckets")
         const windowBucket = Object.keys(buckets).find((k: string) => k.includes("aw-watcher-window"))
         const webBucket = Object.keys(buckets).find((k: string) => k.includes("aw-watcher-web"))
         const afkBucket = Object.keys(buckets).find((k: string) => k.includes("aw-watcher-afk"))
@@ -163,7 +153,7 @@ async function fetchAWDataForDate(dateStr: string): Promise<{
         const fetchEvents = async (bucketId: string | undefined) => {
             if (!bucketId) return []
             try {
-                return await awProxy(
+                return await awFetch(
                     `buckets/${bucketId}/events?start=${dayStart}&end=${dayEnd}&limit=-1`
                 )
             } catch { return [] }
@@ -267,11 +257,11 @@ export default function ProductivityReportPage() {
         }
     }, [user, selectedDate])
 
-    // Check AW status via proxy (avoids CORS)
+    // Check AW status using shared client (direct browser fetch → localhost:5600 first)
     useEffect(() => {
         setAwStatus("checking")
-        fetch("/api/aw-proxy?endpoint=buckets", { signal: AbortSignal.timeout(4000) })
-            .then(r => setAwStatus(r.ok ? "online" : "offline"))
+        isAWOnline()
+            .then(online => setAwStatus(online ? "online" : "offline"))
             .catch(() => setAwStatus("offline"))
     }, [])
 

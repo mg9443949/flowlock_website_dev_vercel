@@ -7,6 +7,9 @@ let currentActivity: {
     startTime: number;
 } | null = null;
 
+// Cached user-defined productivity rules from Supabase
+let userRules: Array<{ rule_type: string; match_string: string; classification: string }> = [];
+
 // Helper to extract domain from URL
 function getDomain(url: string): string {
     try {
@@ -17,27 +20,62 @@ function getDomain(url: string): string {
     }
 }
 
-// Basic default classification
-function classifyDomain(domain: string): 'study' | 'neutral' | 'distraction' {
-    const distractions = ['youtube.com', 'netflix.com', 'facebook.com', 'twitter.com', 'instagram.com', 'reddit.com'];
+// Default classification fallback
+function defaultClassifyDomain(domain: string): 'study' | 'neutral' | 'distraction' {
+    const distractions = ['youtube.com', 'netflix.com', 'facebook.com', 'twitter.com', 'instagram.com', 'reddit.com', 'tiktok.com'];
     if (distractions.some(d => domain.includes(d))) return 'distraction';
 
-    const study = ['github.com', 'stackoverflow.com', 'notion.so', 'wikipedia.org', 'docs.'];
+    const study = ['github.com', 'stackoverflow.com', 'notion.so', 'wikipedia.org', 'docs.google.com', 'coursera.org', 'udemy.com', 'khanacademy.org'];
     if (study.some(s => domain.includes(s))) return 'study';
 
     return 'neutral';
+}
+
+// Classify using user rules first, fall back to defaults
+function classifyDomain(domain: string): 'study' | 'neutral' | 'distraction' {
+    const d = domain.toLowerCase();
+    for (const rule of userRules) {
+        if (rule.rule_type === 'domain' && d.includes(rule.match_string)) {
+            return rule.classification as 'study' | 'neutral' | 'distraction';
+        }
+    }
+    return defaultClassifyDomain(d);
+}
+
+// Fetch user rules from Supabase and cache them
+async function refreshUserRules() {
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase
+            .from('productivity_rules')
+            .select('rule_type, match_string, classification')
+            .eq('user_id', user.id);
+        if (data) userRules = data;
+    } catch (e) {
+        console.warn('[FlowLock] Could not refresh user rules:', e);
+    }
 }
 
 async function startSession() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return; // Not logged in
 
+    // Mark any old active sessions for this browser as completed first
+    await supabase
+        .from('device_sessions')
+        .update({ status: 'completed', ended_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+        .eq('device_type', 'chrome')
+        .eq('device_id', 'browser-ext')
+        .eq('status', 'active');
+
     const { data, error } = await supabase
         .from('device_sessions')
         .insert({
             user_id: user.id,
             device_type: 'chrome',
-            device_id: 'browser-ext', // Could generate a unique ID
+            device_id: 'browser-ext',
             status: 'active'
         })
         .select()
@@ -45,9 +83,10 @@ async function startSession() {
 
     if (data) {
         currentSessionId = data.id;
-        console.log('Session started:', currentSessionId);
+        console.log('[FlowLock] Session started:', currentSessionId);
+        await refreshUserRules(); // Load rules after session starts
     } else {
-        console.error('Failed to start session:', error);
+        console.error('[FlowLock] Failed to start session:', error);
     }
 }
 
@@ -58,7 +97,7 @@ async function flushCurrentActivity() {
     const durationSeconds = Math.floor((endTime - currentActivity.startTime) / 1000);
 
     // Skip saving if less than a few seconds or an internal chrome page
-    if (durationSeconds < 2 || currentActivity.url.startsWith('chrome://')) {
+    if (durationSeconds < 2 || currentActivity.url.startsWith('chrome://') || currentActivity.url.startsWith('chrome-extension://')) {
         currentActivity = null;
         return;
     }
@@ -67,20 +106,33 @@ async function flushCurrentActivity() {
     if (!user) return;
 
     const classification = classifyDomain(currentActivity.domain);
+    const startDate = new Date(currentActivity.startTime);
 
-    await supabase.from('activity_logs').insert({
+    const { error } = await supabase.from('activity_logs').insert({
         session_id: currentSessionId,
         user_id: user.id,
         activity_type: 'browser',
         domain: currentActivity.domain,
-        window_title: currentActivity.url, // We could fetch actual title if needed
-        start_time: new Date(currentActivity.startTime).toISOString(),
+        window_title: currentActivity.url,
+        start_time: startDate.toISOString(),
         end_time: new Date(endTime).toISOString(),
         duration_seconds: durationSeconds,
         classification: classification
     });
 
-    console.log(`Saved activity: ${currentActivity.domain} for ${durationSeconds}s`);
+    if (!error) {
+        console.log(`[FlowLock] Saved: ${currentActivity.domain} (${durationSeconds}s) → ${classification}`);
+        // Update daily summary for the date this activity happened on
+        try {
+            await supabase.rpc('update_daily_summary', {
+                p_user_id: user.id,
+                p_date: startDate.toISOString().split('T')[0]
+            });
+        } catch (e) {
+            console.warn('[FlowLock] Could not update daily summary:', e);
+        }
+    }
+
     currentActivity = null;
 }
 
@@ -101,7 +153,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             handleTabStart(tab.url);
         }
     } catch (e) {
-        console.warn("Could not handle tab activation:", e);
+        console.warn('[FlowLock] Could not handle tab activation:', e);
     }
 });
 
@@ -125,13 +177,13 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
                 handleTabStart(tabs[0].url);
             }
         } catch (e) {
-            console.warn("Could not handle window focus:", e);
+            console.warn('[FlowLock] Could not handle window focus:', e);
         }
     }
 });
 
 async function handleTabStart(url: string) {
-    if (url.startsWith('chrome://')) return; // Ignore internal chrome pages
+    if (url.startsWith('chrome://') || url.startsWith('chrome-extension://')) return;
 
     await ensureSession();
     currentActivity = {
@@ -141,20 +193,34 @@ async function handleTabStart(url: string) {
     };
 }
 
-// Periodic flush every 2 minutes just in case they stay on one tab forever
-chrome.alarms.create("periodicSync", { periodInMinutes: 2 });
+// Periodic flush every 2 minutes + refresh user rules every 10 minutes
+chrome.alarms.create('periodicSync', { periodInMinutes: 2 });
+chrome.alarms.create('refreshRules', { periodInMinutes: 10 });
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-    if (alarm.name === "periodicSync") {
+    if (alarm.name === 'periodicSync') {
         if (currentActivity) {
             const url = currentActivity.url;
             await flushCurrentActivity();
-            // Restart tracking for the current active tab
-            handleTabStart(url);
+            handleTabStart(url); // Restart tracking for the current active tab
         }
+    } else if (alarm.name === 'refreshRules') {
+        await refreshUserRules();
     }
 });
 
-// Initial startup
-chrome.runtime.onStartup.addListener(() => {
-    console.log("FlowLock Extension Started up");
+// BUG FIX: Start tracking session on Chrome startup (was missing before)
+chrome.runtime.onStartup.addListener(async () => {
+    console.log('[FlowLock] Chrome started — initializing session...');
+    currentSessionId = null;
+    currentActivity = null;
+    await startSession();
+});
+
+// BUG FIX: Start tracking session on extension install/update (was missing before)
+chrome.runtime.onInstalled.addListener(async () => {
+    console.log('[FlowLock] Extension installed/updated — initializing session...');
+    currentSessionId = null;
+    currentActivity = null;
+    await startSession();
 });

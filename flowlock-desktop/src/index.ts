@@ -15,31 +15,75 @@ const supabase = getSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const IDLE_THRESHOLD_SECONDS = 60;
 
 let currentSessionId: string | null = null;
+let currentUserId: string | null = null;
 let currentActivity: {
     app: string;
     title: string;
     startTime: number;
 } | null = null;
 
-// Mock basic classifications locally - ideally pulled from Supabase
-function classifyApp(appName: string): 'study' | 'neutral' | 'distraction' | 'idle' {
+// User-defined productivity rules fetched from Supabase
+let userRules: Array<{ rule_type: string; match_string: string; classification: string }> = [];
+
+// Fetch and cache user-defined rules from Supabase
+async function refreshUserRules() {
+    if (!currentUserId) return;
+    try {
+        const { data } = await supabase
+            .from('productivity_rules')
+            .select('rule_type, match_string, classification')
+            .eq('user_id', currentUserId);
+        if (data) {
+            userRules = data;
+            console.log(`[FlowLock] Loaded ${data.length} custom productivity rule(s).`);
+        }
+    } catch (e) {
+        console.warn('[FlowLock] Could not refresh user rules:', e);
+    }
+}
+
+// Default app classification fallback
+function defaultClassifyApp(appName: string): 'study' | 'neutral' | 'distraction' | 'idle' {
     const app = appName.toLowerCase();
-    const distractions = ['spotify.exe', 'discord.exe', 'steam.exe', 'vlc.exe', 'epicgameslauncher.exe'];
+    const distractions = ['spotify.exe', 'discord.exe', 'steam.exe', 'vlc.exe', 'epicgameslauncher.exe', 'origin.exe', 'twitch.exe'];
     if (distractions.some(d => app.includes(d))) return 'distraction';
 
-    const study = ['code.exe', 'notion.exe', 'word.exe', 'powerpnt.exe', 'idea64.exe'];
+    const study = ['code.exe', 'notion.exe', 'word.exe', 'powerpnt.exe', 'idea64.exe', 'pycharm64.exe', 'excel.exe', 'onenote.exe', 'obsidian.exe'];
     if (study.some(s => app.includes(s))) return 'study';
 
     return 'neutral';
 }
 
+// Classify using user rules first, then defaults
+function classifyApp(appName: string): 'study' | 'neutral' | 'distraction' | 'idle' {
+    const app = appName.toLowerCase();
+    for (const rule of userRules) {
+        if (rule.rule_type === 'app' && app.includes(rule.match_string)) {
+            return rule.classification as 'study' | 'neutral' | 'distraction' | 'idle';
+        }
+    }
+    return defaultClassifyApp(app);
+}
+
 async function startTrackingSession(userId: string) {
+    currentUserId = userId;
+
+    // Mark any stale active sessions from this machine as completed
+    const hostname = require('os').hostname();
+    await supabase
+        .from('device_sessions')
+        .update({ status: 'completed', ended_at: new Date().toISOString() })
+        .eq('user_id', userId)
+        .eq('device_type', 'windows')
+        .eq('device_id', hostname)
+        .eq('status', 'active');
+
     const { data, error } = await supabase
         .from('device_sessions')
         .insert({
             user_id: userId,
             device_type: 'windows',
-            device_id: require('os').hostname(),
+            device_id: hostname,
             status: 'active'
         })
         .select()
@@ -48,14 +92,15 @@ async function startTrackingSession(userId: string) {
     if (data) {
         currentSessionId = data.id;
         console.log(`[FlowLock] Syncing started. Session ID: ${currentSessionId}`);
+        await refreshUserRules(); // Load user rules before polling starts
         startPolling();
     } else {
-        console.error('Failed to start session on backend:', error);
+        console.error('[FlowLock] Failed to start session on backend:', error);
     }
 }
 
 async function flushActivity() {
-    if (!currentActivity || !currentSessionId) return;
+    if (!currentActivity || !currentSessionId || !currentUserId) return;
 
     const endTime = Date.now();
     const durationSeconds = Math.floor((endTime - currentActivity.startTime) / 1000);
@@ -65,36 +110,43 @@ async function flushActivity() {
         return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
     let classification = classifyApp(currentActivity.app);
     let appName = currentActivity.app;
 
-    // Is it idle? If it was idle for longer than tracking period...
-    // DesktopIdle tracks total seconds. We only check *current* idle state when flushing.
-    // If the computer has been idle for 60 seconds, we treat this flushed time block as 'idle' 
-    // instead of the foreground app.
+    // If the system has been idle for >= threshold, annotate as idle
     if (desktopIdle.getIdleTime() >= IDLE_THRESHOLD_SECONDS) {
         classification = 'idle';
         appName = 'System Idle';
     }
 
+    const startDate = new Date(currentActivity.startTime);
+
     try {
-        await supabase.from('activity_logs').insert({
+        const { error } = await supabase.from('activity_logs').insert({
             session_id: currentSessionId,
-            user_id: user.id,
+            user_id: currentUserId,
             activity_type: 'app',
             app_name: appName,
             window_title: currentActivity.title,
-            start_time: new Date(currentActivity.startTime).toISOString(),
+            start_time: startDate.toISOString(),
             end_time: new Date(endTime).toISOString(),
             duration_seconds: durationSeconds,
             classification: classification
         });
-        // process.stdout.write(`\r[FlowLock] Synced: ${appName} (${durationSeconds}s) `.padEnd(80));
+
+        if (!error) {
+            // BUG FIX: Update daily summary after logging activity
+            try {
+                await supabase.rpc('update_daily_summary', {
+                    p_user_id: currentUserId,
+                    p_date: startDate.toISOString().split('T')[0]
+                });
+            } catch (rpcErr) {
+                console.warn('[FlowLock] Could not update daily summary:', rpcErr);
+            }
+        }
     } catch (err) {
-        // Silently fail if offline, ideal client would cache offline.
+        // Silently fail if offline — ideal client would cache and retry
     }
 
     currentActivity = null;
@@ -103,17 +155,15 @@ async function flushActivity() {
 async function pollActiveWindow() {
     try {
         const activeWinModule = await import('active-win');
-        const activeWin = activeWinModule.default || activeWinModule; // Handle dynamic esm imports
+        const activeWin = activeWinModule.default || activeWinModule;
         const window = await (activeWin as any)();
         if (window) {
             const app = window.owner.name;
             const title = window.title;
 
-            // Did the app change?
+            // Did the app or window title change?
             if (!currentActivity || currentActivity.app !== app || currentActivity.title !== title) {
                 await flushActivity();
-
-                // Also check if idle state changed
                 currentActivity = {
                     app,
                     title,
@@ -121,7 +171,7 @@ async function pollActiveWindow() {
                 };
             }
         } else {
-            // No active window? Might happen on lock screens
+            // No active window (lock screen etc.)
             await flushActivity();
         }
     } catch (error) {
@@ -132,6 +182,9 @@ async function pollActiveWindow() {
 function startPolling() {
     // Poll every 5 seconds
     setInterval(pollActiveWindow, 5000);
+
+    // Refresh user rules every 10 minutes so changes take effect without restart
+    setInterval(refreshUserRules, 10 * 60 * 1000);
 
     // Ensure we flush on exit
     process.on('SIGINT', async () => {
@@ -173,7 +226,7 @@ async function main() {
         });
 
         if (error) {
-            console.error("Login failed:", error.message);
+            console.error("[FlowLock] Login failed:", error.message);
             process.exit(1);
         } else {
             console.log("\nLogin successful!");

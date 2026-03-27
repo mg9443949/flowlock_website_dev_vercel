@@ -16,11 +16,12 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { LogOut, Settings, User, Eye, Square, AlertCircle, Play, Loader2 } from "lucide-react"
+import { LogOut, Settings, User, Eye, Square, AlertCircle, Play, Loader2, ExternalLink } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
+import { isAWOnline } from "@/utils/aw-client"
 
 const FocusTracker = dynamic(
     () => import("@/components/dashboard/pages/focus-tracker").then(mod => mod.FocusTracker),
@@ -67,17 +68,11 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         if (isAuthenticated && isStudent) {
-            const checkAWStatus = async () => {
-                try {
-                    const res = await fetch("/api/aw-proxy?endpoint=buckets", { signal: AbortSignal.timeout(4000) })
-                    if (!res.ok) {
-                        setShowAWWarning(true)
-                    }
-                } catch (error) {
-                    setShowAWWarning(true)
-                }
-            }
-            checkAWStatus()
+            // Use the shared AW client: tries direct browser→localhost:5600 first,
+            // then falls back to the server-side proxy (local dev only).
+            isAWOnline().then(online => {
+                if (!online) setShowAWWarning(true)
+            })
         }
     }, [isAuthenticated, isStudent])
 
@@ -86,13 +81,11 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
         let interval: ReturnType<typeof setInterval>
         if (showAWWarning) {
             interval = setInterval(async () => {
-                try {
-                    const res = await fetch("/api/aw-proxy?endpoint=buckets", { signal: AbortSignal.timeout(2000) })
-                    if (res.ok) {
-                        setShowAWWarning(false)
-                        setStartingAW(false)
-                    }
-                } catch (e) {}
+                const online = await isAWOnline()
+                if (online) {
+                    setShowAWWarning(false)
+                    setStartingAW(false)
+                }
             }, 3000)
         }
         return () => {
@@ -265,8 +258,22 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
                                 <AlertCircle className="h-5 w-5" />
                                 ActivityWatch is Offline
                             </DialogTitle>
-                            <DialogDescription className="text-base pt-2">
-                                Please activate ActivityWatch so that every minute gets tracked towards your productivity goals.
+                            <DialogDescription className="text-base pt-2 space-y-2">
+                                <span className="block">
+                                    ActivityWatch is not running. Please start it so every minute is tracked towards your productivity goals.
+                                </span>
+                                <span className="block text-sm text-muted-foreground">
+                                    💡 <strong>Windows users:</strong> Look for <em>ActivityWatch</em> in your Start Menu, or click &quot;Start ActivityWatch&quot; below to launch it automatically.
+                                </span>
+                                <a
+                                    href="https://activitywatch.net/downloads/"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-sm text-blue-500 hover:underline"
+                                >
+                                    <ExternalLink className="h-3 w-3" />
+                                    Download ActivityWatch (free &amp; open source)
+                                </a>
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter className="mt-4 flex sm:justify-between">

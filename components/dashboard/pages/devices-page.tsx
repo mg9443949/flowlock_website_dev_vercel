@@ -59,7 +59,7 @@ export function DevicesPage() {
         const fetchData = async () => {
             setIsLoading(true)
 
-            // Fetch Sessions
+            // Fetch Sessions — active sessions float to top, then sorted by time
             const { data: sessionData } = await supabase
                 .from('device_sessions')
                 .select('*')
@@ -67,7 +67,14 @@ export function DevicesPage() {
                 .order('started_at', { ascending: false })
                 .limit(20)
 
-            if (sessionData) setSessions(sessionData)
+            if (sessionData) {
+                // Sort: active first, then completed; within each group sort by time desc
+                const sorted = [...sessionData].sort((a, b) => {
+                    if (a.status === b.status) return 0
+                    return a.status === 'active' ? -1 : 1
+                })
+                setSessions(sorted)
+            }
 
             // Fetch Activities
             const { data: activityData } = await supabase
@@ -115,7 +122,8 @@ export function DevicesPage() {
         return () => {
             supabase.removeChannel(channels)
         }
-    }, [user, supabase])
+    }, [user])
+
 
     const handleAddRule = async () => {
         if (!user || !newMatchString.trim()) return

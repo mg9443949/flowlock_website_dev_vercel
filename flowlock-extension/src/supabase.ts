@@ -1,16 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
-declare const process: {
-    env: {
-        NEXT_PUBLIC_SUPABASE_URL?: string;
-        NEXT_PUBLIC_SUPABASE_ANON_KEY?: string;
-    }
-};
+// NOTE: The anon key is a publishable key — it is safe to embed in a browser
+// extension. Row-Level Security on Supabase restricts what any user can access.
+// process.env is NOT available in a Chrome Extension Service Worker context, so
+// the credentials must be embedded directly here.
+const SUPABASE_URL = "https://cutgjwfkgkoynmxpsntr.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN1dGdqd2ZrZ2tveW5teHBzbnRyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMjI1MDksImV4cCI6MjA4ODY5ODUwOX0.y0eHIyS-tZUH4_q3zqGPuDO8oiRlyBsFdN1_dNbvNrE";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "YOUR_SUPABASE_URL";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "YOUR_SUPABASE_ANON_KEY";
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
         storage: {
             getItem: (key: string): Promise<string | null> => {
