@@ -1,7 +1,5 @@
 "use client"
 
-export const dynamic = 'force-dynamic'
-
 import { useAuth } from "@/components/providers/auth-provider"
 
 export default function FocusRoute() {

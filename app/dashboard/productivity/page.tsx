@@ -1,6 +1,9 @@
-export const dynamic = 'force-dynamic'
+import dynamic from "next/dynamic"
 
-import { ProductivityReportPage } from "@/components/dashboard/pages/productivity-report-page"
+const ProductivityReportPage = dynamic(
+  () => import("@/components/dashboard/pages/productivity-report-page").then(mod => mod.ProductivityReportPage),
+  { ssr: false }
+)
 
 export default function ProductivityPage() {
     return <ProductivityReportPage />
