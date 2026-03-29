@@ -17,6 +17,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceLine,
 } from "recharts"
 import { Sparkles, Brain, Flame } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -705,6 +706,60 @@ export default function DashboardHome() {
         </Card>
       </div>
 
+      {/* This Week / Daily Report */}
+      <Card className="bg-card border-border overflow-hidden">
+        <CardHeader className="p-6 pb-2">
+          <CardTitle className="text-lg font-bold">This Week</CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">Study minutes per day</p>
+        </CardHeader>
+        <CardContent className="p-6 min-h-[300px]">
+          {dailyData.some(d => d.focusMin > 0) ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={dailyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.4} />
+                <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) =>
+                  v >= 60 ? `${Math.floor(v / 60)}h` : `${v}m`
+                } />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      const d = payload[0].payload
+                      const dur = typeof d.focusMin === 'number' && !isNaN(d.focusMin) ? d.focusMin : 0
+                      const sesh = typeof d.sessions === 'number' && !isNaN(d.sessions) ? d.sessions : 0
+                      const avg = typeof d.avgScore === 'number' && !isNaN(d.avgScore) ? d.avgScore : 0
+                      const hh = Math.floor(dur / 60)
+                      const mm = dur % 60
+                      return (
+                        <div className="bg-zinc-900 border border-border p-3 rounded-lg shadow-lg space-y-1">
+                          <p className="text-sm font-medium text-zinc-100">{d.date}</p>
+                          <p className="text-sm text-emerald-400 font-medium">{hh > 0 ? `${hh}h ` : ''}{mm}m studied</p>
+                          <p className="text-xs text-zinc-400">{sesh} session{sesh !== 1 ? 's' : ''}</p>
+                          {avg > 0 && <p className="text-xs font-medium text-emerald-500">Avg focus: {avg}%</p>}
+                        </div>
+                      )
+                    }
+                    return null
+                  }}
+                  cursor={{ fill: "rgba(255,255,255,0.05)" }}
+                />
+                <ReferenceLine y={120} stroke="#8b5cf6" strokeDasharray="5 5" strokeWidth={1} />
+                <Bar dataKey="focusMin" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                  {dailyData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={index === 6 ? '#10b981' : 'var(--primary)'} fillOpacity={index === 6 ? 1 : 0.6} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-[300px] text-muted-foreground text-sm gap-3">
+              <span className="text-4xl opacity-30">📅</span>
+              Complete sessions this week to see your daily breakdown
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
@@ -762,54 +817,6 @@ export default function DashboardHome() {
               <div className="flex flex-col items-center justify-center h-[300px] text-muted-foreground text-sm gap-3">
                 <span className="text-4xl opacity-30">📊</span>
                 Complete a focus session to see your productivity breakdown
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Daily Report */}
-        <Card>
-          <CardHeader className="p-6 pb-2">
-            <CardTitle className="text-base font-semibold">Daily Study Report</CardTitle>
-          </CardHeader>
-          <CardContent className="p-6 min-h-[300px]">
-            {dailyData.some(d => d.focusMin > 0) ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={dailyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.4} />
-                  <XAxis dataKey="day" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) =>
-                    v >= 60 ? `${Math.floor(v / 60)}h` : `${v}m`
-                  } />
-                  <Tooltip
-                    content={({ active, payload, label }) => {
-                      if (active && payload && payload.length) {
-                        const d = payload[0].payload
-                        const dur = typeof d.focusMin === 'number' && !isNaN(d.focusMin) ? d.focusMin : 0
-                        const sesh = typeof d.sessions === 'number' && !isNaN(d.sessions) ? d.sessions : 0
-                        const avg = typeof d.avgScore === 'number' && !isNaN(d.avgScore) ? d.avgScore : 0
-                        const hh = Math.floor(dur / 60)
-                        const mm = dur % 60
-                        return (
-                          <div className="bg-popover border border-border p-3 rounded-lg shadow-lg space-y-1">
-                            <p className="text-sm font-medium text-popover-foreground">{d.date}</p>
-                            <p className="text-sm text-foreground">{hh > 0 ? `${hh}h ` : ''}{mm}m studied</p>
-                            <p className="text-xs text-muted-foreground">{sesh} session{sesh !== 1 ? 's' : ''}</p>
-                            {avg > 0 && <p className="text-xs font-medium text-primary">Avg focus: {avg}%</p>}
-                          </div>
-                        )
-                      }
-                      return null
-                    }}
-                    cursor={{ fill: "var(--muted)", opacity: 0.2 }}
-                  />
-                  <Bar dataKey="focusMin" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-[300px] text-muted-foreground text-sm gap-3">
-                <span className="text-4xl opacity-30">📅</span>
-                Complete sessions this week to see your daily breakdown
               </div>
             )}
           </CardContent>
