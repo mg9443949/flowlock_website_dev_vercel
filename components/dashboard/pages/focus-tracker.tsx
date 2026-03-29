@@ -633,27 +633,31 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
         // Persist session to Supabase (with validation to prevent bogus data)
         const MAX_SESSION_MS = 24 * 60 * 60 * 1000 // 24 hours max
-        if (user?.id && startTimeRef.current > 0 && totalDuration > 0 && totalDuration < MAX_SESSION_MS) {
-            const startedAt = new Date(startTimeRef.current).toISOString()
-            const endedAt = new Date(now).toISOString()
-            const { error } = await supabase.from("study_sessions").insert({
-                user_id: user.id,
-                started_at: startedAt,
-                ended_at: endedAt,
-                duration_ms: totalDuration,
-                focus_score: score,
-                focused_time_ms: focusedTime,
-                drowsy_count: statsRef.current.drowsyCount,
-                drowsy_time_ms: drowsyDuration,
-                head_turned_count: statsRef.current.headTurnedCount,
-                head_turned_time_ms: headDuration,
-                face_missing_count: statsRef.current.faceMissingCount,
-                face_missing_time_ms: faceDuration,
-                unauthorized_count: statsRef.current.unauthorizedCount,
-                unauthorized_time_ms: unauthorizedDuration,
-                high_noise_count: noiseState.highNoiseCount,
-            })
-            if (error) console.error("Failed to save session to Supabase:", error)
+        if (supabase && user?.id && startTimeRef.current > 0 && totalDuration > 0 && totalDuration < MAX_SESSION_MS) {
+            try {
+                const startedAt = new Date(startTimeRef.current).toISOString()
+                const endedAt = new Date(now).toISOString()
+                const { error } = await supabase.from("study_sessions").insert({
+                    user_id: user.id,
+                    started_at: startedAt,
+                    ended_at: endedAt,
+                    duration_ms: totalDuration,
+                    focus_score: score,
+                    focused_time_ms: focusedTime,
+                    drowsy_count: statsRef.current.drowsyCount,
+                    drowsy_time_ms: drowsyDuration,
+                    head_turned_count: statsRef.current.headTurnedCount,
+                    head_turned_time_ms: headDuration,
+                    face_missing_count: statsRef.current.faceMissingCount,
+                    face_missing_time_ms: faceDuration,
+                    unauthorized_count: statsRef.current.unauthorizedCount,
+                    unauthorized_time_ms: unauthorizedDuration,
+                    high_noise_count: noiseState.highNoiseCount,
+                })
+                if (error) console.error("Failed to save session to Supabase:", error)
+            } catch (err) {
+                console.error("Supabase insert crashed:", err)
+            }
         }
 
         setResult(sessionResult)
