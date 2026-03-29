@@ -16,34 +16,22 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { LogOut, Settings, User, Eye, Square, AlertCircle, Play, Loader2, ExternalLink } from "lucide-react"
+import { LogOut, Settings, User, Eye, Square, AlertCircle, Loader2 } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
-import { isAWOnline } from "@/utils/aw-client"
 
 const FocusTracker = dynamic(
     () => import("@/components/dashboard/pages/focus-tracker").then(mod => mod.FocusTracker),
     { ssr: false }
 )
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-    DialogFooter,
-} from "@/components/ui/dialog"
 
 function DashboardInner({ children }: { children: React.ReactNode }) {
     const { user, isAuthenticated, isLoading, logout } = useAuth()
     const { isFocusActive, focusElapsed, targetDuration, stopFocusSession, setLastFocusSession } = useFocus()
     const router = useRouter()
     const pathname = usePathname()
-
-    const [showAWWarning, setShowAWWarning] = useState(false)
-    const [startingAW, setStartingAW] = useState(false)
 
     const isOnFocusPage = pathname === "/dashboard/focus"
     const isStudent = user?.role === "student"
@@ -65,45 +53,6 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
             router.push("/")
         }
     }, [isAuthenticated, router])
-
-    useEffect(() => {
-        if (isAuthenticated && isStudent) {
-            // Use the shared AW client: tries direct browser→localhost:5600 first,
-            // then falls back to the server-side proxy (local dev only).
-            isAWOnline().then(online => {
-                if (!online) setShowAWWarning(true)
-            })
-        }
-    }, [isAuthenticated, isStudent])
-
-    // Poll in the background if warning is showing (in case user starts it manually outside the app)
-    useEffect(() => {
-        let interval: ReturnType<typeof setInterval>
-        if (showAWWarning) {
-            interval = setInterval(async () => {
-                const online = await isAWOnline()
-                if (online) {
-                    setShowAWWarning(false)
-                    setStartingAW(false)
-                }
-            }, 3000)
-        }
-        return () => {
-            if (interval) clearInterval(interval)
-        }
-    }, [showAWWarning])
-
-    const handleStartAW = async () => {
-        setStartingAW(true)
-        setShowAWWarning(false) // Close popup immediately
-        try {
-            await fetch('/api/aw-start', { method: 'POST' })
-        } catch (error) {
-            // silently ignore — background poll will re-show warning if AW never starts
-        } finally {
-            setStartingAW(false)
-        }
-    }
 
     if (isLoading) {
         return (
@@ -249,55 +198,6 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
                 <div className="p-6" style={{ display: isOnFocusPage ? 'none' : undefined }}>
                     {children}
                 </div>
-
-                {/* ActivityWatch Warning Dialog */}
-                <Dialog open={showAWWarning} onOpenChange={setShowAWWarning}>
-                    <DialogContent className="sm:max-w-md">
-                        <DialogHeader>
-                            <DialogTitle className="flex items-center gap-2 text-destructive">
-                                <AlertCircle className="h-5 w-5" />
-                                ActivityWatch is Offline
-                            </DialogTitle>
-                            <DialogDescription className="text-base pt-2 space-y-2">
-                                <span className="block">
-                                    ActivityWatch is not running. Please start it so every minute is tracked towards your productivity goals.
-                                </span>
-                                <span className="block text-sm text-muted-foreground">
-                                    💡 <strong>Windows users:</strong> Look for <em>ActivityWatch</em> in your Start Menu, or click &quot;Start ActivityWatch&quot; below to launch it automatically.
-                                </span>
-                                <a
-                                    href="https://activitywatch.net/downloads/"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-sm text-blue-500 hover:underline"
-                                >
-                                    <ExternalLink className="h-3 w-3" />
-                                    Download ActivityWatch (free &amp; open source)
-                                </a>
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className="mt-4 flex sm:justify-between">
-                            <Button 
-                                variant="outline" 
-                                onClick={() => setShowAWWarning(false)}
-                            >
-                                Remind Me Later
-                            </Button>
-                            <Button 
-                                onClick={handleStartAW} 
-                                disabled={startingAW}
-                                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-                            >
-                                {startingAW ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Play className="h-4 w-4" />
-                                )}
-                                {startingAW ? "Starting..." : "Start ActivityWatch"}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
             </main>
         </div>
     )

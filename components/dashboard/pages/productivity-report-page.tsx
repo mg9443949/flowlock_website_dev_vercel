@@ -15,7 +15,6 @@ import {
     ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts"
 import AIInsightsPanel from "./ai-insights-panel"
-import { awFetch, isAWOnline } from "@/utils/aw-client"
 
 /* ── types ─────────────────────────────────────────────────── */
 
@@ -135,99 +134,17 @@ function EmptyState({ title, message }: { title: string; message: string }) {
     )
 }
 
-async function fetchAWDataForDate(dateStr: string): Promise<{
-    applications: AppUsage[]
-    websites: WebsiteUsage[]
-    idle_minutes: number
-    total_active_minutes: number
-} | null> {
-    try {
-        const buckets = await awFetch("buckets")
-        const windowBucket = Object.keys(buckets).find((k: string) => k.includes("aw-watcher-window"))
-        const webBucket = Object.keys(buckets).find((k: string) => k.includes("aw-watcher-web"))
-        const afkBucket = Object.keys(buckets).find((k: string) => k.includes("aw-watcher-afk"))
-
-        const dayStart = new Date(dateStr + "T00:00:00").toISOString()
-        const dayEnd = new Date(dateStr + "T23:59:59").toISOString()
-
-        const fetchEvents = async (bucketId: string | undefined) => {
-            if (!bucketId) return []
-            try {
-                return await awFetch(
-                    `buckets/${bucketId}/events?start=${dayStart}&end=${dayEnd}&limit=-1`
-                )
-            } catch { return [] }
-        }
-
-        const [windowEvents, webEvents, afkEvents] = await Promise.all([
-            fetchEvents(windowBucket),
-            fetchEvents(webBucket),
-            fetchEvents(afkBucket),
-        ])
-
-        const appMap: Record<string, number> = {}
-        const webMap: Record<string, number> = {}
-        let idleMin = 0
-        let activeMin = 0
-
-        for (const e of windowEvents) {
-            const name = e.data?.app || "Unknown"
-            const dur = (e.duration || 0) / 60
-            if (name !== "Unknown") {
-                appMap[name] = (appMap[name] || 0) + dur
-                activeMin += dur
-            }
-        }
-
-        for (const e of webEvents) {
-            const url = e.data?.url || ""
-            if (url) {
-                try {
-                    let domain = new URL(url).hostname
-                    if (domain.startsWith("www.")) domain = domain.slice(4)
-                    if (domain) webMap[domain] = (webMap[domain] || 0) + (e.duration || 0) / 60
-                } catch { /* skip */ }
-            }
-        }
-
-        for (const e of afkEvents) {
-            if (e.data?.status !== "not-afk") {
-                idleMin += (e.duration || 0) / 60
-            }
-        }
-
-        return {
-            applications: Object.entries(appMap)
-                .map(([app_name, duration_minutes]) => ({ app_name, duration_minutes: Math.round(duration_minutes) }))
-                .filter(a => a.duration_minutes > 0)
-                .sort((a, b) => b.duration_minutes - a.duration_minutes),
-            websites: Object.entries(webMap)
-                .map(([domain, duration_minutes]) => ({ domain, duration_minutes: Math.round(duration_minutes) }))
-                .filter(w => w.duration_minutes > 0)
-                .sort((a, b) => b.duration_minutes - a.duration_minutes),
-            idle_minutes: Math.round(idleMin),
-            total_active_minutes: Math.round(activeMin),
-        }
-    } catch {
-        return null
-    }
-}
-
 /* ── main component ────────────────────────────────────────── */
 
 export default function ProductivityReportPage() {
     const { user } = useAuth()
     const searchParams = useSearchParams()
-    const autoSync = searchParams.get("autoSync")
     const autoDownload = searchParams.get("autoDownload")
-    const hasAutoSynced = useRef(false)
     const hasAutoDownloaded = useRef(false)
-    const [syncComplete, setSyncComplete] = useState(false)
     const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0])
     const [report, setReport] = useState<ReportData | null>(null)
     const [loading, setLoading] = useState(true)
     const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null)
-    const [awStatus, setAwStatus] = useState<"checking" | "online" | "offline">("checking")
 
     const fetchReport = useCallback(async () => {
         if (!user) return
@@ -257,81 +174,17 @@ export default function ProductivityReportPage() {
         }
     }, [user, selectedDate])
 
-    // Check AW status using shared client (direct browser fetch → localhost:5600 first)
-    useEffect(() => {
-        setAwStatus("checking")
-        isAWOnline()
-            .then(online => setAwStatus(online ? "online" : "offline"))
-            .catch(() => setAwStatus("offline"))
-    }, [])
-
     useEffect(() => {
         fetchReport()
     }, [fetchReport])
 
     useEffect(() => {
-        if (autoSync === "true") {
-            if (awStatus === "online" && !hasAutoSynced.current) {
-                hasAutoSynced.current = true
-                handleFetchFromAW()
-            } else if (awStatus === "offline") {
-                setSyncComplete(true)
-            }
-        }
-    }, [autoSync, awStatus])
-
-    useEffect(() => {
-        const isSyncReady = autoSync === "true" ? syncComplete : true;
-        if (autoDownload === "true" && report && !hasAutoDownloaded.current && !loading && isSyncReady) {
+        if (autoDownload === "true" && report && !hasAutoDownloaded.current && !loading) {
             hasAutoDownloaded.current = true
             // eslint-disable-next-line react-hooks/exhaustive-deps
             handleDownloadPDF()
         }
-    }, [autoDownload, autoSync, syncComplete, report, loading])
-
-    /* ── on-demand fetch from AW ─────────────────────────────── */
-
-    const handleFetchFromAW = async () => {
-        if (!user || awStatus !== "online") return
-        setLoading(true)
-
-        try {
-            const awData = await fetchAWDataForDate(selectedDate)
-            if (!awData) {
-                setLoading(false)
-                setSyncComplete(true)
-                return
-            }
-
-            // Upload to backend
-            const { data: { session } } = await supabase.auth.getSession()
-            const token = session?.access_token
-            if (!token) {
-                setSyncComplete(true)
-                return
-            }
-
-            await fetch("/api/productivity/upload", {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    date: selectedDate,
-                    ...awData,
-                }),
-            })
-
-            // Re-fetch report
-            await fetchReport()
-            setSyncComplete(true)
-        } catch (e) {
-            console.error("Failed to fetch from AW:", e)
-            setLoading(false)
-            setSyncComplete(true)
-        }
-    }
+    }, [autoDownload, report, loading])
 
     /* ── PDF download ────────────────────────────────────────── */
 
@@ -536,18 +389,6 @@ export default function ProductivityReportPage() {
                 </div>
 
                 <div className="flex items-center gap-3 flex-wrap">
-                    {/* AW Status */}
-                    <div className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border ${awStatus === "online"
-                        ? "text-emerald-500 bg-emerald-500/10 border-emerald-500/30"
-                        : awStatus === "offline"
-                            ? "text-red-400 bg-red-500/10 border-red-500/30"
-                            : "text-muted-foreground bg-muted border-border"
-                        }`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${awStatus === "online" ? "bg-emerald-500" : awStatus === "offline" ? "bg-red-400" : "bg-muted-foreground"
-                            }`} />
-                        AW {awStatus === "checking" ? "…" : awStatus}
-                    </div>
-
                     {/* Date picker */}
                     <div className="relative">
                         <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -564,16 +405,6 @@ export default function ProductivityReportPage() {
 
             {/* Action buttons */}
             <div className="flex gap-3 flex-wrap">
-                <Button
-                    onClick={handleFetchFromAW}
-                    disabled={loading || awStatus !== "online"}
-                    variant="outline"
-                    className="gap-2"
-                >
-                    <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-                    Sync from ActivityWatch
-                </Button>
-
                 <Button
                     onClick={handleDownloadPDF}
                     disabled={!hasAWData && !hasStudyData || exporting === "pdf"}
@@ -802,9 +633,7 @@ export default function ProductivityReportPage() {
                     <CardContent className="py-8">
                         <EmptyState
                             title="No data for this date"
-                            message={awStatus === "online"
-                                ? "Click 'Sync from ActivityWatch' to fetch your data, or run the agent script."
-                                : "Start ActivityWatch on your machine and run the agent script, or use the Sync button."}
+                            message="Run the FlowLock desktop agent to start tracking your focus sessions naturally."
                         />
                     </CardContent>
                 </Card>

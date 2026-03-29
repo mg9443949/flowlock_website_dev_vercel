@@ -27,41 +27,52 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: "Missing date parameter" }, { status: 400 })
         }
 
-        // Fetch productivity session for this date
-        const { data: session } = await supabase
-            .from("productivity_sessions")
+        const dayStart = new Date(date + "T00:00:00.000Z")
+        const dayEnd = new Date(date + "T23:59:59.999Z")
+
+        // 1. Fetch daily summary from native custom agent DB
+        const { data: summary } = await supabase
+            .from("daily_summaries")
             .select("*")
             .eq("user_id", user.id)
             .eq("date", date)
             .single()
 
+        // 2. Fetch raw activity logs to build top apps/websites lists dynamically for the day
+        const { data: activities } = await supabase
+            .from("activity_logs")
+            .select("activity_type, app_name, domain, duration_seconds")
+            .eq("user_id", user.id)
+            .gte("start_time", dayStart.toISOString())
+            .lte("start_time", dayEnd.toISOString())
+
         let applications: { app_name: string; duration_minutes: number }[] = []
         let websites: { domain: string; duration_minutes: number }[] = []
 
-        if (session) {
-            // Fetch app usage
-            const { data: apps } = await supabase
-                .from("app_usage")
-                .select("app_name, duration_minutes")
-                .eq("session_id", session.id)
-                .order("duration_minutes", { ascending: false })
+        if (activities && activities.length > 0) {
+            const appMap: Record<string, number> = {}
+            const webMap: Record<string, number> = {}
 
-            applications = apps || []
+            for (const act of activities) {
+                if (act.activity_type === "app" && act.app_name) {
+                    appMap[act.app_name] = (appMap[act.app_name] || 0) + act.duration_seconds
+                } else if (act.activity_type === "browser" && act.domain) {
+                    webMap[act.domain] = (webMap[act.domain] || 0) + act.duration_seconds
+                }
+            }
 
-            // Fetch website usage
-            const { data: sites } = await supabase
-                .from("website_usage")
-                .select("domain, duration_minutes")
-                .eq("session_id", session.id)
-                .order("duration_minutes", { ascending: false })
+            applications = Object.entries(appMap)
+                .map(([app_name, dur_sec]) => ({ app_name, duration_minutes: Math.round(dur_sec / 60) }))
+                .filter(a => a.duration_minutes > 0)
+                .sort((a, b) => b.duration_minutes - a.duration_minutes)
 
-            websites = sites || []
+            websites = Object.entries(webMap)
+                .map(([domain, dur_sec]) => ({ domain, duration_minutes: Math.round(dur_sec / 60) }))
+                .filter(w => w.duration_minutes > 0)
+                .sort((a, b) => b.duration_minutes - a.duration_minutes)
         }
 
-        // Fetch existing study sessions for this date
-        const dayStart = new Date(date + "T00:00:00")
-        const dayEnd = new Date(date + "T23:59:59")
-
+        // 3. Fetch existing study sessions for this date
         const { data: studySessions } = await supabase
             .from("study_sessions")
             .select("*")
@@ -69,7 +80,7 @@ export async function GET(req: NextRequest) {
             .gte("started_at", dayStart.toISOString())
             .lte("started_at", dayEnd.toISOString())
 
-        // Calculate existing metrics
+        // Calculate existing study metrics
         let totalStudyMin = 0
         let totalFocusedMin = 0
         let totalDrowsyMin = 0
@@ -88,20 +99,26 @@ export async function GET(req: NextRequest) {
             )
         }
 
-        const totalActiveMin = session?.total_active_minutes || 0
-        const idleMin = session?.idle_minutes || 0
-        const focusTime = totalActiveMin - idleMin
-        const appTotalMin = applications.reduce((s, a) => s + a.duration_minutes, 0)
-        const webTotalMin = websites.reduce((s, w) => s + w.duration_minutes, 0)
-
-        // Productivity score: ratio of focus vs total tracked time
-        const totalTracked = focusTime + idleMin
-        const productivityScore = totalTracked > 0 ? Math.round((focusTime / totalTracked) * 100) : 0
+        // 4. Derive metrics from daily_summary
+        const totalActiveMin = summary ? Math.round(((summary.study_seconds || 0) + (summary.distraction_seconds || 0) + (summary.neutral_seconds || 0)) / 60) : 0
+        const idleMin = summary ? Math.round((summary.idle_seconds || 0) / 60) : 0
+        const focusTime = summary ? Math.round((summary.study_seconds || 0) / 60) : 0
+        const distractionTime = summary ? Math.round((summary.distraction_seconds || 0) / 60) : 0
+        
+        let productivityScore = 0
+        const totalTrackedMin = totalActiveMin + idleMin
+        
+        // Match the original scoring structure, but with real data
+        if (summary && summary.overall_focus_score !== null) {
+            productivityScore = summary.overall_focus_score
+        } else if (totalTrackedMin > 0) {
+            productivityScore = Math.round(((focusTime + (totalActiveMin - focusTime - distractionTime)) / totalTrackedMin) * 100)
+        }
 
         const report = {
             date,
             focus_time: focusTime,
-            distraction_time: idleMin,
+            distraction_time: distractionTime,
             total_active_minutes: totalActiveMin,
             idle_minutes: idleMin,
             productivity_score: productivityScore,
