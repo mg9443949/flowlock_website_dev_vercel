@@ -88,6 +88,7 @@ export default function DashboardHome() {
   const [totalFocusedMs, setTotalFocusedMs] = useState(0)
   const [totalDistractedMs, setTotalDistractedMs] = useState(0)
   const [streakDays, setStreakDays] = useState(0)
+  const [insightMessage, setInsightMessage] = useState("Keep building your focus habits! 🚀")
   const [motivationalQuote, setMotivationalQuote] = useState<{ text: string; author: string } | null>(null)
   const [aiQuickTip, setAiQuickTip] = useState<string | null>(null)
   const [aiTipLoading, setAiTipLoading] = useState(false)
@@ -126,28 +127,22 @@ export default function DashboardHome() {
     async function fetchData() {
       setIsLoading(true)
       try {
-        // Fetch last 7 days of sessions
-        const now = new Date()
-        const sevenDaysAgo = new Date(now)
-        sevenDaysAgo.setDate(now.getDate() - 6)
-        sevenDaysAgo.setHours(0, 0, 0, 0)
-
         const timeoutPromise = new Promise<any>((_, reject) => 
           setTimeout(() => reject(new Error("Supabase query timed out")), 10000)
         )
 
-        const { data: recentSessions } = await Promise.race([
+        // Fetch ALL sessions to compute global metrics & insights
+        const { data: allSessions } = await Promise.race([
           supabase
             .from("study_sessions")
-            .select("started_at, duration_ms, focus_score")
+            .select("*")
             .eq("user_id", user?.id)
-            .gte("started_at", sevenDaysAgo.toISOString())
             .order("started_at", { ascending: true }),
           timeoutPromise
         ])
 
-        // Build daily bar chart data for last 7 days
         const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        const now = new Date()
         const days: any[] = []
         for (let i = 6; i >= 0; i--) {
           const d = new Date(now)
@@ -162,23 +157,86 @@ export default function DashboardHome() {
           })
         }
 
-        if (recentSessions) {
-          for (const s of recentSessions) {
-            if (!s.started_at) continue
-            const sessionDate = new Date(s.started_at).toDateString()
-            const dayEntry = days.find(d => d.date === sessionDate)
-            if (!dayEntry) continue
-            const dur = typeof s.duration_ms === 'number' ? s.duration_ms : 0
-            const score = typeof s.focus_score === 'number' ? s.focus_score : 0
-            dayEntry.focusMin += Math.round(dur / 60000)
-            dayEntry.sessions += 1
-            dayEntry.totalScore += score
-          }
-          for (const d of days) {
-            if (d.sessions > 0) d.avgScore = Math.round(d.totalScore / d.sessions)
+        if (!allSessions || allSessions.length === 0) {
+          setDailyData(days)
+          setIsLoading(false)
+          return
+        }
+
+        let totalMs = 0
+        let totalSes = allSessions.length
+        let totalScore = 0
+        let totalDist = 0
+        let totalFoc = 0
+        let totalDistTime = 0
+
+        const nowMs = now.getTime()
+        const sevenDaysAgoMs = nowMs - 7 * 24 * 60 * 60 * 1000
+        const fourteenDaysAgoMs = nowMs - 14 * 24 * 60 * 60 * 1000
+
+        let thisWeekMs = 0
+        let lastWeekMs = 0
+
+        for (const s of allSessions) {
+          if (!s.started_at) continue
+          const dMs = (typeof s.duration_ms === 'number' ? s.duration_ms : 0)
+          totalMs += dMs
+          totalScore += (s.focus_score || 0)
+          totalDist += (s.drowsy_count || 0) + (s.head_turned_count || 0) + (s.face_missing_count || 0)
+          totalFoc += (s.focused_time_ms || 0)
+          
+          const dt = (s.drowsy_time_ms || 0) + (s.head_turned_time_ms || 0) + (s.face_missing_time_ms || 0) + (s.unauthorized_time_ms || 0)
+          totalDistTime += dt
+
+          const sessionDateObj = new Date(s.started_at)
+          const sessionMs = sessionDateObj.getTime()
+
+          if (sessionMs >= sevenDaysAgoMs) {
+            thisWeekMs += dMs
+            const sessionDateStr = sessionDateObj.toDateString()
+            const dayEntry = days.find(d => d.date === sessionDateStr)
+            if (dayEntry) {
+              dayEntry.focusMin += Math.round(dMs / 60000)
+              dayEntry.sessions += 1
+              dayEntry.totalScore += (s.focus_score || 0)
+            }
+          } else if (sessionMs >= fourteenDaysAgoMs) {
+            lastWeekMs += dMs
           }
         }
+
+        for (const d of days) {
+          if (d.sessions > 0) d.avgScore = Math.round(d.totalScore / d.sessions)
+        }
+
+        const bestDay = days.reduce((prev, current) => (prev.focusMin > current.focusMin) ? prev : current, days[0])
+
+        setTotalStudyMs(totalMs)
+        setTotalSessions(totalSes)
+        setAvgFocusScore(Math.round(totalScore / totalSes))
+        setAvgSessionMs(Math.round(totalMs / totalSes))
+        setTotalDistractions(totalDist)
+        setTotalFocusedMs(totalFoc)
+        setTotalDistractedMs(totalDistTime)
         setDailyData(days)
+
+        // Simple Streak
+        let streak = 0
+        for (let i = 6; i >= 0; i--) {
+          if (days[i].sessions > 0) streak++
+          else if (i !== 6) break 
+        }
+        setStreakDays(streak)
+
+        if (thisWeekMs > lastWeekMs && lastWeekMs > 0) {
+          const pct = Math.round(((thisWeekMs - lastWeekMs) / lastWeekMs) * 100)
+          setInsightMessage(`You've studied ${pct}% more than last week 🔥`)
+        } else if (bestDay && bestDay.focusMin > 0) {
+          setInsightMessage(`Your best day this week was ${bestDay.day} with ${bestDay.focusMin}m focused 🎯`)
+        } else {
+          setInsightMessage("Keep building your focus habits! 🚀")
+        }
+
       } catch (e) {
         console.error("Failed to fetch dashboard data:", e)
       } finally {
@@ -216,14 +274,6 @@ export default function DashboardHome() {
 
   return (
     <div className="p-6 md:p-8 space-y-8 max-w-7xl mx-auto animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Welcome back, {user.name}</h1>
-        <p className="text-muted-foreground">
-          Here&apos;s your study performance overview.
-        </p>
-      </div>
-
       {/* Daily Motivational Quote */}
       {motivationalQuote && (
         <Card className="bg-gradient-to-r from-primary/10 via-violet-500/10 to-primary/5 border-primary/20 overflow-hidden">
@@ -303,12 +353,19 @@ export default function DashboardHome() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-        <Card>
-          <CardContent className="p-6 space-y-2">
-            <p className="text-sm font-medium text-muted-foreground">Total Study Time</p>
-            <div className="space-y-1">
-              <p className="text-3xl font-bold tracking-tight text-foreground">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+        {/* Personalized Insight Card (Replaces Total Study Time) */}
+        <Card className="md:col-span-2 lg:col-span-2 bg-gradient-to-br from-zinc-900 to-zinc-950 border-emerald-500/20 shadow-md flex flex-col justify-center">
+          <CardContent className="p-6 space-y-4">
+            <div>
+              <h2 className="text-2xl font-bold text-emerald-50 mb-1">
+                {new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}, {user.name.split(" ")[0]}!
+              </h2>
+              <p className="text-sm text-zinc-400">Here's your productivity overview.</p>
+            </div>
+            
+            <div className="flex items-baseline gap-3">
+              <p className="text-5xl font-black tracking-tight text-emerald-500 max-w-[200px] truncate">
                 {totalStudyMs > 0
                   ? (() => {
                       const totalMin = Math.round(totalStudyMs / 60000)
@@ -316,9 +373,14 @@ export default function DashboardHome() {
                     })()
                   : "0m"}
               </p>
-              <p className="text-xs font-medium text-muted-foreground">
-                {totalSessions} session{totalSessions !== 1 ? "s" : ""}
+              <p className="text-sm font-medium text-emerald-500/60">
+                total across {totalSessions} session{totalSessions !== 1 ? "s" : ""}
               </p>
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium">
+              <TrendingUp size={16} />
+              {insightMessage}
             </div>
           </CardContent>
         </Card>
