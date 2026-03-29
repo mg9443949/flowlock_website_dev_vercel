@@ -18,7 +18,7 @@ import {
   AreaChart,
   CartesianGrid,
 } from "recharts"
-import { Sparkles, Brain } from "lucide-react"
+import { Sparkles, Brain, Flame } from "lucide-react"
 import { useEffect, useState } from "react"
 import { supabase } from "@/utils/supabase/client"
 
@@ -90,6 +90,8 @@ export default function DashboardHome() {
   const [streakDays, setStreakDays] = useState(0)
   const [insightMessage, setInsightMessage] = useState("Keep building your focus habits! 🚀")
   const [bestFocusTimeWindow, setBestFocusTimeWindow] = useState("Not enough data")
+  const [longestStreak, setLongestStreak] = useState(0)
+  const [streakDots, setStreakDots] = useState<boolean[]>([])
   const [recentSessionDurations, setRecentSessionDurations] = useState<number[]>([])
   const [isSessionTrendUp, setIsSessionTrendUp] = useState(false)
   const [distractionHourData, setDistractionHourData] = useState<{name: string, value: number}[]>([])
@@ -232,6 +234,36 @@ export default function DashboardHome() {
           else if (i !== 6) break 
         }
         setStreakDays(streak)
+        setStreakDots(days.map((d: any) => d.sessions > 0))
+
+        // Longest streak
+        const dailySessionsObj: Record<string, boolean> = {}
+        for (const s of allSessions) {
+           if (s.started_at) {
+             const dt = new Date(s.started_at)
+             const dStr = dt.getFullYear() + "-" + (dt.getMonth()+1) + "-" + dt.getDate()
+             dailySessionsObj[dStr] = true
+           }
+        }
+        const activeDates = Object.keys(dailySessionsObj).map(dStr => new Date(dStr).getTime()).sort((a,b) => a - b)
+        let longest = 0
+        let currentLoopStreak = 0
+        let lastDateMs = 0
+        for (let ms of activeDates) {
+            if (lastDateMs === 0) {
+               currentLoopStreak = 1
+            } else {
+               const diffDays = Math.round((ms - lastDateMs) / (1000 * 60 * 60 * 24))
+               if (diffDays === 1) {
+                  currentLoopStreak++
+               } else if (diffDays > 1) {
+                  currentLoopStreak = 1
+               }
+            }
+            if (currentLoopStreak > longest) longest = currentLoopStreak
+            lastDateMs = ms
+        }
+        setLongestStreak(longest)
 
         // Best focus time
         const hourScores: Record<number, {total: number, count: number}> = {}
@@ -593,16 +625,48 @@ export default function DashboardHome() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6 space-y-2">
-            <p className="text-sm font-medium text-muted-foreground">Current Streak</p>
-            <div className="space-y-1">
-              <p className="text-3xl font-bold tracking-tight text-foreground">
-                {streakDays > 0 ? `${streakDays} day${streakDays !== 1 ? "s" : ""}` : "—"}
-              </p>
-              <p className="text-xs font-medium text-amber-500">
-                {streakDays > 0 ? "Keep it up!" : "Start a session!"}
-              </p>
+        <Card className="flex flex-col">
+          <CardContent className="p-6 flex-1 flex flex-col justify-between">
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-muted-foreground">Current Streak</p>
+                <Flame size={16} className={streakDays > 0 ? "text-emerald-500" : "text-muted-foreground/50"} />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <p className="text-3xl font-bold tracking-tight text-foreground">
+                  {streakDays > 0 ? `${streakDays} day${streakDays !== 1 ? "s" : ""}` : "—"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-auto pt-2 space-y-3 border-t border-border/50">
+              <div className="flex items-center justify-between w-full pt-1">
+                {streakDots.length > 0 ? (
+                  streakDots.map((isActive, i) => (
+                    <div 
+                      key={i} 
+                      className={`w-3.5 h-3.5 rounded-full ${isActive ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]' : 'bg-muted border border-muted-foreground/20'}`}
+                      title={isActive ? "Focused" : "Missed"}
+                    />
+                  ))
+                ) : (
+                  Array.from({length: 7}).map((_, i) => (
+                    <div key={i} className="w-3.5 h-3.5 rounded-full bg-muted border border-muted-foreground/20" />
+                  ))
+                )}
+              </div>
+              
+              <div className="text-xs font-medium">
+                {streakDays === 0 ? (
+                  <span className="text-amber-500">
+                    Start today to build your streak 🚀
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Longest streak: <span className="text-foreground">{longestStreak} day{longestStreak !== 1 ? "s" : ""}</span>
+                  </span>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
