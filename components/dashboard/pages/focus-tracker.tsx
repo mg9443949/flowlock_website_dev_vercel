@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Eye, Play, Square, RotateCcw, AlertTriangle, CheckCircle2, Download, Mic, Volume2, ChevronDown, ChevronUp, Gamepad2 } from "lucide-react"
+import { Eye, Play, Square, RotateCcw, AlertTriangle, CheckCircle2, Download, Mic, Volume2, ChevronDown, ChevronUp, Gamepad2, Coffee, SkipForward } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import Script from "next/script"
@@ -650,7 +650,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         }
 
         setResult(sessionResult)
-        setPhase("break")
+        setPhase("results")
 
         // Call Pomodoro completion logic
         // If there was a target duration, use it (converted to mins). Else use actual duration.
@@ -1220,123 +1220,34 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                     </div>
                 )}
 
-                {/* ── BREAK PHASE ── */}
-                {phase === "break" && result && (
-                    <div className="animate-in fade-in duration-500 space-y-6 max-w-2xl mx-auto">
-                        {/* Celebration header */}
-                        <div className="text-center space-y-3 py-6">
-                            <div className="text-6xl mb-4">
-                                {result.score >= 80 ? "🎉" : result.score >= 60 ? "👏" : "✅"}
-                            </div>
-                            <h2 className="text-3xl font-bold">
-                                Session Complete!
-                            </h2>
-                            <p className="text-muted-foreground">
-                                {result.score >= 80
-                                    ? "Outstanding focus! You absolutely crushed it."
-                                    : result.score >= 60
-                                    ? "Solid effort! Keep building that consistency."
-                                    : "Every session counts! Rest up and come back stronger."}
-                            </p>
-                        </div>
-
-                        {/* Quick stats */}
-                        <div className="grid grid-cols-3 gap-4">
-                            {[
-                                { label: "Focus Score", value: `${result.score}%`, color: result.score >= 70 ? "text-emerald-500" : "text-amber-500" },
-                                { label: "Duration", value: formatTime(result.duration), color: "text-primary" },
-                                { label: "Distractions", value: `${result.drowsyCount + result.headTurnedCount + result.faceMissingCount + result.unauthorizedCount}`, color: "text-muted-foreground" },
-                            ].map(s => (
-                                <div key={s.label} className="bg-muted/50 rounded-xl p-4 text-center space-y-1">
-                                    <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                                    <p className="text-xs text-muted-foreground">{s.label}</p>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Break prompt */}
-                        <div className="text-center">
-                            <p className="text-sm text-muted-foreground font-medium">
-                                Your brain deserves a break. What would you like to do?
-                            </p>
-                        </div>
-
-                        {/* 3 action buttons */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <button
-                                onClick={() => router.push("/dashboard/games")}
-                                className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/15 hover:border-primary transition-all duration-200"
-                            >
-                                <span className="text-4xl group-hover:scale-110 transition-transform duration-200">🎮</span>
-                                <span className="font-semibold text-sm text-center">Take me to Games</span>
-                                <span className="text-xs text-muted-foreground text-center">Relax with a quick game</span>
-                            </button>
-
-                            <button
-                                onClick={() => setPhase("results")}
-                                className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-muted hover:border-muted-foreground bg-muted/30 hover:bg-muted/60 transition-all duration-200"
-                            >
-                                <span className="text-4xl group-hover:scale-110 transition-transform duration-200">⏭</span>
-                                <span className="font-semibold text-sm text-center">Skip the Break</span>
-                                <span className="text-xs text-muted-foreground text-center">View detailed report</span>
-                            </button>
-
-                            <button
-                                onClick={() => router.push("/dashboard/playlist")}
-                                className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/15 hover:border-emerald-500 transition-all duration-200"
-                            >
-                                <span className="text-4xl group-hover:scale-110 transition-transform duration-200">🎵</span>
-                                <span className="font-semibold text-sm text-center">Listen Music</span>
-                                <span className="text-xs text-muted-foreground text-center">Chill with your playlist</span>
-                            </button>
-                        </div>
-
-                        {/* Or start new session */}
-                        <div className="text-center">
-                            <button
-                                onClick={() => setPhase("ready")}
-                                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
-                            >
-                                No break needed — start a new session
-                            </button>
-                        </div>
-                    </div>
-                )}
-
                 {/* ── RESULTS PHASE ── */}
                 {phase === "results" && result && (
-                    <div className="animate-in fade-in duration-300 space-y-6 max-w-2xl mx-auto">
+                    <div className="animate-in fade-in duration-500 space-y-6 max-w-4xl mx-auto">
                         <Card className="border-border">
                             <CardHeader className="text-center">
-                                <div className="mx-auto mb-2">
-                                    {result.score >= 70 ? (
-                                        <CheckCircle2 size={48} className="text-emerald-500" />
-                                    ) : (
-                                        <AlertTriangle size={48} className="text-amber-500" />
-                                    )}
+                                <div className="mx-auto mb-2 text-6xl">
+                                    {result.score >= 80 ? "🎉" : result.score >= 60 ? "👏" : "✅"}
                                 </div>
                                 <CardTitle className="text-3xl">
+                                    Session Complete!
+                                </CardTitle>
+                                <p className="text-muted-foreground text-lg">
                                     Focus Score:{" "}
-                                    <span className={result.score >= 70 ? "text-emerald-500" : "text-amber-500"}>
+                                    <span className={result.score >= 70 ? "text-emerald-500 font-bold" : "text-amber-500 font-bold"}>
                                         {result.score}%
                                     </span>
-                                </CardTitle>
-                                <p className="text-muted-foreground">
-                                    Session Duration: {formatTime(result.duration)}
+                                    {" "} • Duration: {formatTime(result.duration)}
                                 </p>
                             </CardHeader>
-                            <CardContent className="space-y-6">
-                                {/* Chart */}
-                                <div className="max-w-md mx-auto mb-6">
-                                    <h3 className="text-center font-medium text-sm text-muted-foreground mb-3">Distractions Count</h3>
+                            <CardContent className="space-y-8">
+                                {/* Graphical Representation */}
+                                <div className="max-w-xl mx-auto mb-6 bg-muted/20 p-4 rounded-xl">
+                                    <h3 className="text-center font-medium text-muted-foreground mb-4">Productivity Breakdown</h3>
                                     <canvas ref={chartCanvasRef} />
                                 </div>
 
-                                {/* Breakdown */}
-                                <div className="space-y-3">
-                                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">
-                                        Session Breakdown
-                                    </h3>
+                                {/* Breakdown Stats */}
+                                <div className="space-y-3 max-w-xl mx-auto">
                                     {[
                                         {
                                             label: "Focused Time",
@@ -1384,24 +1295,58 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                     ))}
                                 </div>
 
-                                {/* Divider & Actions */}
-                                <div className="pt-4 border-t border-border space-y-4">
-                                    <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
-                                        <Button onClick={() => router.push("/dashboard/games")} className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
-                                            <Gamepad2 size={18} />
-                                            Take me to Games
-                                        </Button>
-                                        <Button onClick={() => router.push("/dashboard/playlist")} variant="outline" className="gap-2 bg-transparent border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">
-                                            <Mic size={18} />
-                                            Listen Music
-                                        </Button>
-                                        <Button variant="outline" onClick={() => setPhase("ready")} className="gap-2 bg-transparent">
-                                            <RotateCcw size={18} />
-                                            New Session
-                                        </Button>
+                                {/* 4 Action Buttons */}
+                                <div className="pt-6 border-t border-border">
+                                    <h3 className="text-center font-medium text-muted-foreground mb-6">What would you like to do next?</h3>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <button
+                                            onClick={() => router.push("/dashboard/study")}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/15 hover:border-orange-500 transition-all duration-200"
+                                        >
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-orange-500/10 text-orange-500 group-hover:scale-110 transition-transform duration-200">
+                                                <Coffee size={24} />
+                                            </span>
+                                            <span className="font-semibold text-sm text-center">Take a break</span>
+                                            <span className="text-xs text-muted-foreground text-center">Start a rest timer</span>
+                                        </button>
+                                        
+                                        <button
+                                            onClick={() => router.push("/dashboard/games")}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/15 hover:border-primary transition-all duration-200"
+                                        >
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 text-primary group-hover:scale-110 transition-transform duration-200">
+                                                <Gamepad2 size={24} />
+                                            </span>
+                                            <span className="font-semibold text-sm text-center">Play Games</span>
+                                            <span className="text-xs text-muted-foreground text-center">Relax with a quick game</span>
+                                        </button>
+
+                                        <button
+                                            onClick={() => router.push("/dashboard/playlist")}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/15 hover:border-emerald-500 transition-all duration-200"
+                                        >
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 group-hover:scale-110 transition-transform duration-200">
+                                                <Mic size={24} />
+                                            </span>
+                                            <span className="font-semibold text-sm text-center">Listen to music</span>
+                                            <span className="text-xs text-muted-foreground text-center">Chill with your playlist</span>
+                                        </button>
+
+                                        <button
+                                            onClick={() => setPhase("ready")}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-muted hover:border-muted-foreground bg-muted/30 hover:bg-muted/60 transition-all duration-200"
+                                        >
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-muted-foreground/10 text-muted-foreground group-hover:scale-110 transition-transform duration-200">
+                                                <SkipForward size={24} />
+                                            </span>
+                                            <span className="font-semibold text-sm text-center">Skip the break</span>
+                                            <span className="text-xs text-muted-foreground text-center">Start a new session</span>
+                                        </button>
+                                    </div>
+                                    <div className="flex justify-center mt-8">
                                         <Button variant="secondary" onClick={handleDownloadReport} className="gap-2">
                                             <Download size={18} />
-                                            Download Report
+                                            Download PDF Report manually
                                         </Button>
                                     </div>
                                 </div>
