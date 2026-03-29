@@ -90,6 +90,8 @@ export default function DashboardHome() {
   const [streakDays, setStreakDays] = useState(0)
   const [insightMessage, setInsightMessage] = useState("Keep building your focus habits! 🚀")
   const [bestFocusTimeWindow, setBestFocusTimeWindow] = useState("Not enough data")
+  const [recentSessionDurations, setRecentSessionDurations] = useState<number[]>([])
+  const [isSessionTrendUp, setIsSessionTrendUp] = useState(false)
   const [motivationalQuote, setMotivationalQuote] = useState<{ text: string; author: string } | null>(null)
   const [aiQuickTip, setAiQuickTip] = useState<string | null>(null)
   const [aiTipLoading, setAiTipLoading] = useState(false)
@@ -258,6 +260,22 @@ export default function DashboardHome() {
         } else {
            setBestFocusTimeWindow("Not enough data")
         }
+
+        // Sparkline & trend calculation
+        const last7Sessions = allSessions.slice(-7)
+        const durations = last7Sessions.map((s: any) => typeof s.duration_ms === 'number' ? Math.round(s.duration_ms / 60000) : 0)
+        
+        let trendUp = false
+        if (durations.length >= 2) {
+            const firstHalf = durations.slice(0, Math.max(1, Math.floor(durations.length / 2)))
+            const secondHalf = durations.slice(Math.max(1, Math.floor(durations.length / 2)))
+            const firstAvg = firstHalf.reduce((a: number, b: number) => a + b, 0) / (firstHalf.length || 1)
+            const secondAvg = secondHalf.reduce((a: number, b: number) => a + b, 0) / (secondHalf.length || 1)
+            trendUp = secondAvg >= firstAvg && secondAvg > 0
+        }
+        
+        setRecentSessionDurations(durations)
+        setIsSessionTrendUp(trendUp)
 
         if (thisWeekMs > lastWeekMs && lastWeekMs > 0) {
           const pct = Math.round(((thisWeekMs - lastWeekMs) / lastWeekMs) * 100)
@@ -457,15 +475,42 @@ export default function DashboardHome() {
           })()}
         </Card>
 
-        <Card>
-          <CardContent className="p-6 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-muted-foreground">Avg. Session</p>
-              <Timer size={16} className="text-muted-foreground/50" />
+        <Card className="flex flex-col">
+          <CardContent className="p-6 flex-1 flex flex-col justify-between">
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-muted-foreground">Avg. Session</p>
+                <Timer size={16} className="text-muted-foreground/50" />
+              </div>
+              <div className="flex flex-wrap items-baseline gap-2">
+                <p className="text-3xl font-bold tracking-tight text-foreground">{totalSessions > 0 ? avgSessionDisplay : "—"}</p>
+                {isSessionTrendUp && recentSessionDurations.length >= 2 && (
+                  <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5 uppercase tracking-wider">
+                    <TrendingUp size={12} />
+                    Up
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="space-y-1">
-              <p className="text-3xl font-bold tracking-tight text-foreground">{totalSessions > 0 ? avgSessionDisplay : "—"}</p>
-              <p className="text-xs font-medium text-muted-foreground">Per session</p>
+            
+            <div className="h-10 mt-auto w-full -ml-2">
+            {recentSessionDurations.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={recentSessionDurations.map((val, i) => ({ i, val }))}>
+                    <defs>
+                      <linearGradient id="colorTeal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#14b8a6" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <Area type="monotone" dataKey="val" stroke="#14b8a6" strokeWidth={2} fillOpacity={1} fill="url(#colorTeal)" isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+            ) : (
+                <div className="h-full flex items-end ml-2">
+                  <p className="text-xs font-medium text-muted-foreground">Per session</p>
+                </div>
+            )}
             </div>
           </CardContent>
         </Card>
