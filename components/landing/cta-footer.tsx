@@ -26,7 +26,7 @@ export function CtaFooter() {
       {/* ── CTA block ── */}
       <section
         ref={sectionRef}
-        className="relative overflow-hidden border-t px-6 lg:px-8 py-28"
+        className="relative overflow-hidden border-t px-6 lg:px-8 py-12 md:py-20"
         style={{ backgroundColor: "#0a0a0a", borderColor: "rgba(255,255,255,0.07)" }}
       >
         {/* Central radial blue glow */}
@@ -34,7 +34,7 @@ export function CtaFooter() {
           className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              "radial-gradient(ellipse 70% 60% at 50% 50%, rgba(59,91,219,0.22) 0%, rgba(59,91,219,0.08) 40%, transparent 70%)",
+              "radial-gradient(ellipse 70% 60% at 50% 50%, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 40%, transparent 70%)",
           }}
         />
 
@@ -63,7 +63,7 @@ export function CtaFooter() {
 
           {/* Headline */}
           <h2
-            className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white mb-5"
+            className="text-[36px] md:text-[56px] font-bold tracking-tight text-white mb-5"
             style={{ lineHeight: "1.1" }}
           >
             Your Focus.{" "}
@@ -71,7 +71,7 @@ export function CtaFooter() {
               className="bg-clip-text text-transparent"
               style={{
                 backgroundImage:
-                  "linear-gradient(135deg, #4f7cff 0%, #818cf8 55%, #60a5fa 100%)",
+                  "linear-gradient(135deg, #3B82F6 0%, #818cf8 55%, #60a5fa 100%)",
               }}
             >
               Your Data.
@@ -89,19 +89,19 @@ export function CtaFooter() {
             {/* Primary CTA */}
             <Link href="/login">
               <button
-                className="group relative w-full sm:w-auto text-base font-semibold px-8 py-3.5 rounded-full text-white cursor-pointer transition-all duration-300"
+                className="group relative w-full sm:w-auto text-base font-semibold px-8 py-3.5 rounded-full text-white cursor-pointer transition-all duration-200 ease-in-out"
                 style={{
-                  background: "linear-gradient(135deg, #3B5BDB 0%, #4f46e5 100%)",
-                  border: "1.5px solid rgba(99,130,255,0.55)",
-                  boxShadow: "0 0 14px 2px rgba(59,91,219,0.28)",
+                  background: "linear-gradient(135deg, #3B82F6 0%, #4f46e5 100%)",
+                  border: "1.5px solid rgba(59,130,246,0.55)",
+                  boxShadow: "0 0 14px 2px rgba(59,130,246,0.28)",
                 }}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                    "0 0 30px 8px rgba(59,91,219,0.55), 0 0 0 2px rgba(99,130,255,0.4)"
+                    "0 0 30px 8px rgba(59,130,246,0.55), 0 0 0 2px rgba(59,130,246,0.4)"
                 }}
                 onMouseLeave={(e) => {
                   (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                    "0 0 14px 2px rgba(59,91,219,0.28)"
+                    "0 0 14px 2px rgba(59,130,246,0.28)"
                 }}
               >
                 Start for Free →
@@ -111,22 +111,22 @@ export function CtaFooter() {
             {/* Ghost CTA */}
             <Link href="#how-it-works">
               <button
-                className="w-full sm:w-auto text-base font-semibold px-8 py-3.5 rounded-full text-blue-400 cursor-pointer transition-all duration-300"
+                className="w-full sm:w-auto text-base font-semibold px-8 py-3.5 rounded-full text-blue-400 cursor-pointer transition-all duration-200 ease-in-out"
                 style={{
                   background: "transparent",
-                  border: "1.5px solid rgba(99,130,255,0.35)",
+                  border: "1.5px solid rgba(59,130,246,0.35)",
                   boxShadow: "none",
                 }}
                 onMouseEnter={(e) => {
                   const el = e.currentTarget as HTMLButtonElement
-                  el.style.background = "rgba(59,91,219,0.10)"
-                  el.style.borderColor = "rgba(99,130,255,0.65)"
+                  el.style.background = "rgba(59,130,246,0.10)"
+                  el.style.borderColor = "rgba(59,130,246,0.65)"
                   el.style.color = "#a5b4fc"
                 }}
                 onMouseLeave={(e) => {
                   const el = e.currentTarget as HTMLButtonElement
                   el.style.background = "transparent"
-                  el.style.borderColor = "rgba(99,130,255,0.35)"
+                  el.style.borderColor = "rgba(59,130,246,0.35)"
                   el.style.color = "#60a5fa"
                 }}
               >

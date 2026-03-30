@@ -125,6 +125,10 @@
     @apply border-border outline-ring/50;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -219,3 +223,35 @@
 .animation-delay-200 { animation-delay: 0.2s; }
 .animation-delay-300 { animation-delay: 0.35s; }
 .animation-delay-500 { animation-delay: 0.5s; }
+
+/* Page load fade-in */
+@keyframes page-load-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-page-load {
+  animation: page-load-fade 0.4s ease both;
+}
+
+/* Back-to-top button */
+.back-to-top-btn {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3B82F6 0%, #6366f1 100%);
+  border: 1px solid rgba(99,130,255,0.45);
+  box-shadow: 0 0 16px rgba(59,130,246,0.35);
+  cursor: pointer;
+  transition: opacity 0.25s ease, transform 0.25s ease, box-shadow 0.2s ease;
+}
+.back-to-top-btn:hover {
+  box-shadow: 0 0 28px 6px rgba(59,130,246,0.55);
+  transform: translateY(-2px);
+}

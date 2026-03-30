@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 export function HeroSection() {
   return (
     <div
-      className="relative flex flex-col items-center justify-center min-h-[88vh] overflow-hidden px-6 lg:px-8 text-center"
+      className="relative flex flex-col items-center justify-center min-h-[88vh] overflow-hidden px-6 lg:px-8 text-center animate-page-load"
       style={{ backgroundColor: "#0a0a0a" }}
     >
       {/* ── Dot-grid background overlay ── */}
@@ -27,7 +27,7 @@ export function HeroSection() {
           left: "50%",
           transform: "translate(-50%, -52%)",
           background:
-            "radial-gradient(ellipse at center, rgba(59,91,219,0.38) 0%, rgba(59,91,219,0.12) 45%, transparent 75%)",
+            "radial-gradient(ellipse at center, rgba(59,130,246,0.38) 0%, rgba(59,130,246,0.12) 45%, transparent 75%)",
           filter: "blur(32px)",
         }}
       />
@@ -66,7 +66,7 @@ export function HeroSection() {
             className="bg-clip-text text-transparent"
             style={{
               backgroundImage:
-                "linear-gradient(135deg, #4f7cff 0%, #818cf8 50%, #60a5fa 100%)",
+                "linear-gradient(135deg, #3B82F6 0%, #818cf8 50%, #60a5fa 100%)",
             }}
           >
             Maximize Everything.
@@ -84,21 +84,21 @@ export function HeroSection() {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up animation-delay-300">
           <Link href="/login">
             <button
-              className="animate-btn-border-glow relative group w-full sm:w-auto text-lg px-8 py-4 rounded-full font-semibold text-white transition-all duration-300 cursor-pointer"
+              className="animate-btn-border-glow relative group w-full sm:w-auto text-lg px-8 py-4 rounded-full font-semibold text-white transition-all duration-200 ease-in-out cursor-pointer"
               style={{
                 background:
-                  "linear-gradient(135deg, #3B5BDB 0%, #4f46e5 100%)",
-                border: "1.5px solid rgba(99,130,255,0.6)",
+                  "linear-gradient(135deg, #3B82F6 0%, #4f46e5 100%)",
+                border: "1.5px solid rgba(59,130,246,0.6)",
                 boxShadow:
-                  "0 0 16px 2px rgba(59,91,219,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                  "0 0 16px 2px rgba(59,130,246,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
               }}
             >
               {/* Hover inner glow overlay */}
               <span
-                className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-in-out pointer-events-none"
                 style={{
                   background:
-                    "radial-gradient(ellipse at center, rgba(99,130,255,0.25) 0%, transparent 70%)",
+                    "radial-gradient(ellipse at center, rgba(59,130,246,0.25) 0%, transparent 70%)",
                 }}
               />
               <span className="relative z-10">Get Started for Free</span>
@@ -109,7 +109,7 @@ export function HeroSection() {
             <Button
               variant="outline"
               size="lg"
-              className="w-full sm:w-auto text-lg px-8 py-6 rounded-full border-zinc-700 text-zinc-300 hover:bg-zinc-800/60 hover:border-zinc-500 hover:text-white backdrop-blur-sm transition-all duration-300"
+              className="w-full sm:w-auto text-lg px-8 py-6 rounded-full border-zinc-700 text-zinc-300 hover:bg-zinc-800/60 hover:border-zinc-500 hover:text-white backdrop-blur-sm transition-all duration-200 ease-in-out"
               style={{ backgroundColor: "rgba(255,255,255,0.03)" }}
             >
               See How It Works

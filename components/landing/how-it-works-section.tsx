@@ -83,7 +83,7 @@ export function HowItWorksSection() {
   return (
     <section
       id="how-it-works"
-      className="py-28 relative border-t overflow-hidden px-6 lg:px-8"
+      className="py-12 md:py-20 relative border-t overflow-hidden px-6 lg:px-8"
       style={{ backgroundColor: "#0a0a0a", borderColor: "rgba(255,255,255,0.07)" }}
     >
       {/* Dot-grid overlay */}
@@ -101,7 +101,7 @@ export function HowItWorksSection() {
         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] pointer-events-none -z-10"
         style={{
           background:
-            "radial-gradient(ellipse, rgba(59,91,219,0.10) 0%, transparent 70%)",
+            "radial-gradient(ellipse, rgba(59,130,246,0.10) 0%, transparent 70%)",
           filter: "blur(50px)",
         }}
       />
@@ -112,13 +112,13 @@ export function HowItWorksSection() {
           <p className="text-xs font-bold uppercase tracking-widest text-blue-500 mb-4">
             Get Up And Running
           </p>
-          <h2 className="text-4xl font-extrabold tracking-tight sm:text-5xl text-white">
+          <h2 className="text-[36px] md:text-[56px] font-bold tracking-tight text-white mb-2" style={{ lineHeight: "1.1" }}>
             How to{" "}
             <span
               className="bg-clip-text text-transparent"
               style={{
                 backgroundImage:
-                  "linear-gradient(135deg, #4f7cff 0%, #818cf8 60%, #60a5fa 100%)",
+                  "linear-gradient(135deg, #3B82F6 0%, #818cf8 60%, #60a5fa 100%)",
               }}
             >
               Execute
@@ -143,8 +143,8 @@ export function HowItWorksSection() {
               style={{
                 width: `${progress}%`,
                 background:
-                  "linear-gradient(90deg, #3B5BDB 0%, #818cf8 50%, #60a5fa 100%)",
-                boxShadow: "0 0 10px 2px rgba(99,130,255,0.5)",
+                  "linear-gradient(90deg, #3B82F6 0%, #818cf8 50%, #60a5fa 100%)",
+                boxShadow: "0 0 10px 2px rgba(59,130,246,0.5)",
                 transition: "none",
               }}
             />
@@ -159,16 +159,16 @@ export function HowItWorksSection() {
                 <div key={idx} className="flex flex-col items-center">
                   {/* Icon circle */}
                   <div
-                    className="relative flex h-20 w-20 items-center justify-center rounded-full mb-8 transition-all duration-500"
+                    className="relative flex h-20 w-20 items-center justify-center rounded-full mb-8 transition-all duration-200 ease-in-out"
                     style={{
                       background: isActive
-                        ? "linear-gradient(135deg, rgba(59,91,219,0.30) 0%, rgba(99,102,241,0.15) 100%)"
+                        ? "linear-gradient(135deg, rgba(59,130,246,0.30) 0%, rgba(99,102,241,0.15) 100%)"
                         : "rgba(255,255,255,0.03)",
                       border: isActive
-                        ? "2px solid rgba(99,130,255,0.7)"
+                        ? "2px solid rgba(59,130,246,0.7)"
                         : "2px solid rgba(255,255,255,0.08)",
                       boxShadow: isActive
-                        ? "0 0 24px 4px rgba(59,91,219,0.35)"
+                        ? "0 0 24px 4px rgba(59,130,246,0.35)"
                         : "none",
                       transform: isActive ? "scale(1.08)" : "scale(1)",
                     }}
@@ -178,7 +178,7 @@ export function HowItWorksSection() {
                       className="absolute -top-2 -right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                       style={{
                         background: isActive
-                          ? "linear-gradient(135deg, #3B5BDB, #818cf8)"
+                          ? "linear-gradient(135deg, #3B82F6, #818cf8)"
                           : "rgba(255,255,255,0.08)",
                         color: isActive ? "#fff" : "rgba(255,255,255,0.3)",
                       }}
@@ -186,7 +186,7 @@ export function HowItWorksSection() {
                       {step.num}
                     </span>
                     <Icon
-                      className="h-8 w-8 transition-colors duration-500"
+                      className="h-8 w-8 transition-colors duration-200 ease-in-out"
                       style={{
                         color: isActive ? "#818cf8" : "rgba(255,255,255,0.2)",
                       }}
@@ -195,7 +195,7 @@ export function HowItWorksSection() {
 
                   {/* Text */}
                   <h3
-                    className="text-xl font-bold text-center mb-1 transition-colors duration-500"
+                    className="text-xl font-bold text-center mb-1 transition-colors duration-200 ease-in-out"
                     style={{ color: isActive ? "#ffffff" : "rgba(255,255,255,0.35)" }}
                   >
                     {step.title}
@@ -203,7 +203,7 @@ export function HowItWorksSection() {
 
                   {/* Time tag */}
                   <p
-                    className="text-xs italic font-medium mb-3 transition-colors duration-500"
+                    className="text-xs italic font-medium mb-3 transition-colors duration-200 ease-in-out"
                     style={{
                       color: isActive ? "#6080ff" : "rgba(255,255,255,0.2)",
                     }}
@@ -212,7 +212,7 @@ export function HowItWorksSection() {
                   </p>
 
                   <p
-                    className="text-center leading-relaxed text-sm max-w-[220px] transition-colors duration-500"
+                    className="text-center leading-relaxed text-sm max-w-[220px] transition-colors duration-200 ease-in-out"
                     style={{ color: isActive ? "#a1a1aa" : "rgba(255,255,255,0.2)" }}
                   >
                     {step.description}

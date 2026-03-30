@@ -67,16 +67,16 @@ function FeatureCard({
 
   return (
     <div
-      className="group relative rounded-2xl p-px transition-all duration-500 cursor-default"
+      className="group relative rounded-2xl p-px transition-all duration-200 ease-in-out cursor-default"
       style={{
         opacity: visible ? 1 : 0,
         transform: visible ? "translateY(0)" : "translateY(32px)",
-        transition: `opacity 0.6s ease ${feature.delay}ms, transform 0.6s ease ${feature.delay}ms, box-shadow 0.3s ease`,
-        background: "linear-gradient(135deg, rgba(59,91,219,0.18) 0%, rgba(30,30,40,0.6) 60%, rgba(99,102,241,0.12) 100%)",
+        transition: `opacity 0.6s ease ${feature.delay}ms, transform 0.6s ease ${feature.delay}ms, box-shadow 0.2s ease-in-out`,
+        background: "linear-gradient(135deg, rgba(59,130,246,0.18) 0%, rgba(30,30,40,0.6) 60%, rgba(99,102,241,0.12) 100%)",
         boxShadow: "0 0 0 1px rgba(255,255,255,0.06)",
       }}
       onMouseEnter={(e) => {
-        (e.currentTarget as HTMLElement).style.boxShadow = `0 0 0 1.5px rgba(99,130,255,0.5), 0 0 24px 4px ${feature.glowColor}`
+        (e.currentTarget as HTMLElement).style.boxShadow = `0 0 0 1.5px rgba(59,130,246,0.5), 0 0 24px 4px ${feature.glowColor}`
       }}
       onMouseLeave={(e) => {
         (e.currentTarget as HTMLElement).style.boxShadow = "0 0 0 1px rgba(255,255,255,0.06)"
@@ -89,7 +89,7 @@ function FeatureCard({
       >
         {/* top-right corner accent glow */}
         <div
-          className="absolute -top-8 -right-8 w-28 h-28 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+          className="absolute -top-8 -right-8 w-28 h-28 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-in-out pointer-events-none"
           style={{
             background: `radial-gradient(circle, ${feature.glowColor} 0%, transparent 70%)`,
             filter: "blur(16px)",
@@ -99,15 +99,15 @@ function FeatureCard({
         {/* Icon */}
         <div className="h-14 w-14 rounded-2xl flex items-center justify-center flex-shrink-0"
           style={{
-            background: "linear-gradient(135deg, rgba(59,91,219,0.22) 0%, rgba(99,102,241,0.10) 100%)",
-            border: "1px solid rgba(99,130,255,0.18)",
+            background: "linear-gradient(135deg, rgba(59,130,246,0.22) 0%, rgba(99,102,241,0.10) 100%)",
+            border: "1px solid rgba(59,130,246,0.18)",
           }}
         >
           <Icon className={`h-7 w-7 text-blue-400 ${feature.iconAnim} transition-colors group-hover:text-blue-300`} />
         </div>
 
         {/* Title */}
-        <h3 className="text-xl font-bold text-white leading-tight group-hover:text-blue-100 transition-colors duration-300">
+        <h3 className="text-xl font-bold text-white leading-tight group-hover:text-blue-100 transition-colors duration-200 ease-in-out">
           {feature.title}
         </h3>
 
@@ -158,14 +158,14 @@ export function FeaturesSection() {
   return (
     <section
       id="features"
-      className="py-28 relative border-t px-6 lg:px-8 overflow-hidden"
+      className="py-12 md:py-20 relative border-t px-6 lg:px-8 overflow-hidden"
       style={{ backgroundColor: "#0a0a0a", borderColor: "rgba(255,255,255,0.07)" }}
     >
       {/* Ambient background glows */}
       <div
         className="absolute top-0 left-1/4 -z-10 w-[500px] h-[300px] pointer-events-none"
         style={{
-          background: "radial-gradient(ellipse, rgba(59,91,219,0.12) 0%, transparent 70%)",
+          background: "radial-gradient(ellipse, rgba(59,130,246,0.12) 0%, transparent 70%)",
           filter: "blur(40px)",
         }}
       />
@@ -190,12 +190,12 @@ export function FeaturesSection() {
           <p className="text-xs font-bold uppercase tracking-widest text-blue-500 mb-4">
             Everything You Need
           </p>
-          <h2 className="text-4xl font-extrabold tracking-tight sm:text-5xl text-white">
+          <h2 className="text-[36px] md:text-[56px] font-bold tracking-tight text-white mb-2" style={{ lineHeight: "1.1" }}>
             Engineered for{" "}
             <span
               className="bg-clip-text text-transparent"
               style={{
-                backgroundImage: "linear-gradient(135deg, #4f7cff 0%, #818cf8 60%, #60a5fa 100%)",
+                backgroundImage: "linear-gradient(135deg, #3B82F6 0%, #818cf8 60%, #60a5fa 100%)",
               }}
             >
               Deep Work

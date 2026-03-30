@@ -69,8 +69,8 @@ export function Navbar() {
                 <div
                   className="flex h-8 w-8 items-center justify-center rounded-lg"
                   style={{
-                    background: "linear-gradient(135deg, #3B5BDB 0%, #818cf8 100%)",
-                    boxShadow: "0 0 10px rgba(59,91,219,0.4)",
+                    background: "linear-gradient(135deg, #3B82F6 0%, #818cf8 100%)",
+                    boxShadow: "0 0 10px rgba(59,130,246,0.4)",
                   }}
                 >
                   <Zap size={16} className="text-white" fill="white" />
@@ -102,19 +102,19 @@ export function Navbar() {
               <div className="hidden md:flex items-center">
                 <Link href="/login">
                   <button
-                    className="text-sm font-semibold text-white px-5 py-2 rounded-full cursor-pointer transition-all duration-300"
+                    className="text-sm font-semibold text-white px-5 py-2 rounded-full cursor-pointer transition-all duration-200 ease-in-out"
                     style={{
-                      background: "linear-gradient(135deg, #3B5BDB 0%, #4f46e5 100%)",
-                      border: "1px solid rgba(99,130,255,0.5)",
-                      boxShadow: "0 0 12px rgba(59,91,219,0.25)",
+                      background: "linear-gradient(135deg, #3B82F6 0%, #4f46e5 100%)",
+                      border: "1px solid rgba(59,130,246,0.5)",
+                      boxShadow: "0 0 12px rgba(59,130,246,0.25)",
                     }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                        "0 0 24px 4px rgba(59,91,219,0.5)"
+                        "0 0 24px 4px rgba(59,130,246,0.5)"
                     }}
                     onMouseLeave={(e) => {
                       (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                        "0 0 12px rgba(59,91,219,0.25)"
+                        "0 0 12px rgba(59,130,246,0.25)"
                     }}
                   >
                     Get Started
@@ -139,7 +139,7 @@ export function Navbar() {
             className="h-px w-full"
             style={{
               background:
-                "linear-gradient(90deg, transparent 0%, #3B5BDB 30%, #818cf8 60%, transparent 100%)",
+                "linear-gradient(90deg, transparent 0%, #3B82F6 30%, #818cf8 60%, transparent 100%)",
               opacity: 0.6,
             }}
           />
@@ -178,8 +178,8 @@ export function Navbar() {
               <button
                 className="w-full text-sm font-semibold text-white px-5 py-3 rounded-full mt-1 cursor-pointer"
                 style={{
-                  background: "linear-gradient(135deg, #3B5BDB 0%, #4f46e5 100%)",
-                  border: "1px solid rgba(99,130,255,0.4)",
+                  background: "linear-gradient(135deg, #3B82F6 0%, #4f46e5 100%)",
+                  border: "1px solid rgba(59,130,246,0.4)",
                   opacity: mobileOpen ? 1 : 0,
                   transform: mobileOpen ? "translateY(0)" : "translateY(8px)",
                   transition: "opacity 0.35s ease 200ms, transform 0.35s ease 200ms",
