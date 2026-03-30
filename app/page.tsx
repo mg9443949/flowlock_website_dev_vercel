@@ -6,6 +6,7 @@ import { useEffect } from "react"
 import { HeroSection } from "@/components/landing/hero-section"
 import { FeaturesSection } from "@/components/landing/features-section"
 import { HowItWorksSection } from "@/components/landing/how-it-works-section"
+import { CtaFooter } from "@/components/landing/cta-footer"
 
 export default function LandingPage() {
   const { isAuthenticated } = useAuth()
@@ -27,10 +28,7 @@ export default function LandingPage() {
       <FeaturesSection />
       <HowItWorksSection />
       
-      {/* Simple Footer */}
-      <footer className="py-10 text-center border-t border-border/40 text-muted-foreground text-sm">
-        <p>© {new Date().getFullYear()} FlowLock. Master Your Focus.</p>
-      </footer>
+      <CtaFooter />
     </div>
   )
 }
