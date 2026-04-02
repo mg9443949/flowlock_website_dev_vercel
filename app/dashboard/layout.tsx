@@ -4,7 +4,6 @@ import { useAuth } from "@/components/providers/auth-provider"
 import { FocusProvider, useFocus } from "@/components/providers/focus-provider"
 import { PomodoroProvider } from "@/components/providers/pomodoro-provider"
 import { BreakOverlay } from "@/components/dashboard/break-overlay"
-import { PomodoroWidget } from "@/components/dashboard/pomodoro-widget"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import {
     DropdownMenu,
@@ -97,7 +96,6 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
                         <div className="flex items-center gap-4 w-full">
                             <h1 className="text-2xl font-bold text-primary">FlowLock</h1>
                             <div className="ml-auto flex items-center gap-4">
-                                <PomodoroWidget />
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button variant="ghost" className="relative h-10 w-10 rounded-full">
