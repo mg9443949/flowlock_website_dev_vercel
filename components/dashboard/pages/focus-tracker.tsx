@@ -633,11 +633,24 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
         // Persist session to Supabase (with validation to prevent bogus data)
         const MAX_SESSION_MS = 24 * 60 * 60 * 1000 // 24 hours max
+        
+        console.log("=== FOCUS SESSION END ===");
+        console.log("Validating session parameters:", {
+            hasSupabase: !!supabase,
+            userId: user?.id,
+            startTime: startTimeRef.current,
+            totalDuration,
+            isValidDuration: totalDuration > 0 && totalDuration < MAX_SESSION_MS
+        });
+
         if (supabase && user?.id && startTimeRef.current > 0 && totalDuration > 0 && totalDuration < MAX_SESSION_MS) {
             try {
                 const startedAt = new Date(startTimeRef.current).toISOString()
                 const endedAt = new Date(now).toISOString()
-                const { error } = await supabase.from("study_sessions").insert({
+                
+                console.log("Attempting to save session to Supabase table 'study_sessions'...");
+                
+                const { error, data } = await supabase.from("study_sessions").insert({
                     user_id: user.id,
                     started_at: startedAt,
                     ended_at: endedAt,
@@ -653,11 +666,19 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                     unauthorized_count: statsRef.current.unauthorizedCount,
                     unauthorized_time_ms: unauthorizedDuration,
                     high_noise_count: noiseState.highNoiseCount,
-                })
-                if (error) console.error("Failed to save session to Supabase:", error)
+                }).select()
+                
+                if (error) {
+                    console.error("🚨 Failed to save session to Supabase:", error)
+                    console.error("Error details:", JSON.stringify(error, null, 2))
+                } else {
+                    console.log("✅ Session saved successfully:", data)
+                }
             } catch (err) {
-                console.error("Supabase insert crashed:", err)
+                console.error("🚨 Supabase insert crashed:", err)
             }
+        } else {
+             console.log("Session not saved because validation failed. Check above logs.");
         }
 
         setResult(sessionResult)

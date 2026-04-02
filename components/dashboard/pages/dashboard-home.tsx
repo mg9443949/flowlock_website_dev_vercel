@@ -192,7 +192,7 @@ export default function DashboardHome() {
           const dMs = (typeof s.duration_ms === 'number' ? s.duration_ms : 0)
           totalMs += dMs
           totalScore += (s.focus_score || 0)
-          totalDist += (s.drowsy_count || 0) + (s.head_turned_count || 0) + (s.face_missing_count || 0)
+          totalDist += (s.drowsy_count || 0) + (s.head_turned_count || 0) + (s.face_missing_count || 0) + (s.unauthorized_count || 0) + (s.high_noise_count || 0)
           totalFoc += (s.focused_time_ms || 0)
           
           const dt = (s.drowsy_time_ms || 0) + (s.head_turned_time_ms || 0) + (s.face_missing_time_ms || 0) + (s.unauthorized_time_ms || 0)
@@ -230,16 +230,7 @@ export default function DashboardHome() {
         setTotalDistractedMs(totalDistTime)
         setDailyData(days)
 
-        // Simple Streak
-        let streak = 0
-        for (let i = 6; i >= 0; i--) {
-          if (days[i].sessions > 0) streak++
-          else if (i !== 6) break 
-        }
-        setStreakDays(streak)
-        setStreakDots(days.map((d: any) => d.sessions > 0))
-
-        // Longest streak
+        // Maps date to boolean
         const dailySessionsObj: Record<string, boolean> = {}
         for (const s of allSessions) {
            if (s.started_at) {
@@ -248,7 +239,42 @@ export default function DashboardHome() {
              dailySessionsObj[dStr] = true
            }
         }
-        const activeDates = Object.keys(dailySessionsObj).map(dStr => new Date(dStr).getTime()).sort((a,b) => a - b)
+
+        // Current Streak calculation (endless)
+        let streak = 0
+        const today = new Date()
+        const checkDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+        let dStr = checkDate.getFullYear() + "-" + (checkDate.getMonth()+1) + "-" + checkDate.getDate()
+        
+        if (dailySessionsObj[dStr]) {
+            streak = 1
+            checkDate.setDate(checkDate.getDate() - 1)
+        } else {
+            checkDate.setDate(checkDate.getDate() - 1)
+            let yStr = checkDate.getFullYear() + "-" + (checkDate.getMonth()+1) + "-" + checkDate.getDate()
+            if (dailySessionsObj[yStr]) {
+                streak = 1
+                checkDate.setDate(checkDate.getDate() - 1)
+            }
+        }
+        
+        if (streak > 0) {
+            while (true) {
+               let currStr = checkDate.getFullYear() + "-" + (checkDate.getMonth()+1) + "-" + checkDate.getDate()
+               if (dailySessionsObj[currStr]) {
+                   streak++
+                   checkDate.setDate(checkDate.getDate() - 1)
+               } else {
+                   break
+               }
+            }
+        }
+        
+        setStreakDays(streak)
+        setStreakDots(days.map((d: any) => d.sessions > 0))
+
+        // Longest streak
+        const activeDates = Object.keys(dailySessionsObj).map(str => new Date(str).getTime()).sort((a,b) => a - b)
         let longest = 0
         let currentLoopStreak = 0
         let lastDateMs = 0
@@ -268,7 +294,7 @@ export default function DashboardHome() {
         }
         setLongestStreak(longest)
 
-        // Best focus time
+        // Peak Zone (Best focus time)
         const hourScores: Record<number, {total: number, count: number}> = {}
         for (const s of allSessions) {
           if (!s.started_at || typeof s.focus_score !== 'number') continue
@@ -289,11 +315,11 @@ export default function DashboardHome() {
         }
         if (bestHour !== -1) {
            const formatHour = (hour: number) => {
-               const ampm = hour >= 12 ? 'PM' : 'AM'
+               const ampm = hour >= 12 ? 'am' : 'pm'
                const h12 = hour % 12 || 12
-               return `${h12} ${ampm}`
+               return `${h12}${ampm}`
            }
-           setBestFocusTimeWindow(`${formatHour(bestHour)} – ${formatHour((bestHour + 2) % 24)}`)
+           setBestFocusTimeWindow(`${formatHour(bestHour)}–${formatHour((bestHour + 1) % 24)}`)
         } else {
            setBestFocusTimeWindow("Not enough data")
         }
