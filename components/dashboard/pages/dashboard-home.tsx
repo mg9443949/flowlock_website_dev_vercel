@@ -143,7 +143,7 @@ export default function DashboardHome() {
         )
 
         // Fetch ALL sessions to compute global metrics & insights
-        const { data: allSessions } = await Promise.race([
+        const response = await Promise.race([
           supabase
             .from("study_sessions")
             .select("*")
@@ -151,6 +151,12 @@ export default function DashboardHome() {
             .order("started_at", { ascending: true }),
           timeoutPromise
         ])
+        
+        const { data: allSessions, error } = response
+        
+        console.log("[DASHBOARD AUDIT] Current user ID:", user?.id)
+        console.log("[DASHBOARD AUDIT] Raw Supabase Error:", error)
+        console.log("[DASHBOARD AUDIT] Raw Supabase Data Array:", allSessions)
 
         const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         const now = new Date()
