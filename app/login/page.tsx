@@ -2,22 +2,10 @@
 
 import { LoginPage } from "@/components/auth/login-page"
 import { useAuth } from "@/components/providers/auth-provider"
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
 
 export default function LoginRoute() {
-  const { isAuthenticated, login, demoLogin, signup } = useAuth()
-  const router = useRouter()
+  const { demoLogin, signup } = useAuth()
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.push("/dashboard")
-    }
-  }, [isAuthenticated, router])
-
-  if (isAuthenticated) {
-    return null
-  }
-
-  return <LoginPage onLogin={login} onDemoLogin={demoLogin} onSignup={signup} />
+  // Removed onAuthStateChange navigation and rely on middleware instead
+  return <LoginPage onDemoLogin={demoLogin} onSignup={signup} />
 }

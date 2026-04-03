@@ -6,14 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Loader2 } from "lucide-react"
+import { supabase } from "@/utils/supabase/client"
+import { useRouter } from "next/navigation"
 
 interface LoginPageProps {
-  onLogin: (email: string, password: string) => Promise<{ error?: string }>
   onDemoLogin: () => void
   onSignup: (email: string, password: string, name: string) => Promise<{ error?: string }>
 }
 
-export function LoginPage({ onLogin, onDemoLogin, onSignup }: LoginPageProps) {
+export function LoginPage({ onDemoLogin, onSignup }: LoginPageProps) {
+  const router = useRouter()
   const [isSignup, setIsSignup] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -34,14 +36,38 @@ export function LoginPage({ onLogin, onDemoLogin, onSignup }: LoginPageProps) {
           return
         }
         const result = await onSignup(email, password, name)
-        if (result.error) setError(result.error)
+        if (result.error) {
+          setError(result.error)
+          setIsSubmitting(false)
+        } else {
+          // Signup redirects identically inside auth context usually, but if it doesn't:
+          // Keep component unmounted or handled by other files
+        }
       } else {
-        const result = await onLogin(email, password)
-        if (result.error) setError(result.error)
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        })
+
+        if (error) {
+          setError(error.message)
+          setIsSubmitting(false)
+          return
+        }
+
+        if (!data.session) {
+          setError('Login succeeded but no session was created. Please try again.')
+          setIsSubmitting(false)
+          return
+        }
+
+        // Redirect immediately — do not wait for onAuthStateChange
+        router.push('/dashboard')
+        // Do NOT call setIsSubmitting(false) here, component will unmount
       }
     } catch (err: any) {
+      console.error('[LOGIN] Unexpected error:', err)
       setError(err.message || "An unexpected error occurred.")
-    } finally {
       setIsSubmitting(false)
     }
   }
