@@ -156,35 +156,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string
   ): Promise<{ error?: string }> => {
-    if (!supabase) {
-      return { error: 'Missing Supabase configuration.' }
-    }
+    alert('LOGIN STEP 1: function called')
+    
     try {
+      alert('LOGIN STEP 2: calling signInWithPassword')
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
-      if (error) return { error: error.message }
-      if (!data.session) return { error: 'No session returned. Please try again.' }
+      alert('LOGIN STEP 3: got response. error=' + 
+            (error?.message ?? 'none') + 
+            ' session=' + (data?.session ? 'EXISTS' : 'NULL'))
 
-      // Set auth state IMMEDIATELY before navigating
-      // so the dashboard guard never sees an unauthenticated state
-      const profile = await fetchProfile(data.session.user)
+      if (error) {
+        alert('LOGIN STEP 3 FAIL: ' + error.message)
+        return { error: error.message }
+      }
+
+      if (!data?.session) {
+        alert('LOGIN STEP 3 FAIL: session is null')
+        return { error: 'No session returned.' }
+      }
+
+      alert('LOGIN STEP 4: about to fetchProfile')
+      
+      let profile = null
+      try {
+        profile = await fetchProfile(data.session.user)
+        alert('LOGIN STEP 4 DONE: profile=' + 
+              (profile ? profile.email : 'NULL'))
+      } catch (profileErr: any) {
+        alert('LOGIN STEP 4 CRASH: ' + profileErr.message)
+      }
+
       if (profile) {
         setUser(profile)
         setIsAuthenticated(true)
       }
 
-      // Small delay to ensure React has committed the state update
-      // before the new page mounts and reads isAuthenticated
-      await new Promise(resolve => setTimeout(resolve, 100))
-
+      alert('LOGIN STEP 5: about to navigate to /dashboard')
       window.location.replace('/dashboard')
+      alert('LOGIN STEP 6: navigation called (should never see this)')
+      
       return {}
 
     } catch (err: any) {
-      return { error: err.message || 'Network error. Please try again.' }
+      alert('LOGIN CATCH: ' + err.message)
+      return { error: err.message || 'Network error.' }
     }
   }
 
