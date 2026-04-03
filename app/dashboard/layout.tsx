@@ -48,10 +48,15 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     const shouldMountTracker = hasMountedTracker
 
     useEffect(() => {
-      // Only redirect if auth has FINISHED loading and user is NOT authenticated
-      // Never redirect while isLoading is still true
-      if (!isLoading && !isAuthenticated) {
-        window.location.replace('/login')
+      if (isLoading) return
+      
+      if (!isAuthenticated) {
+        // Small delay ensures we don't redirect during 
+        // React's state commit between isLoading and isAuthenticated
+        const timer = setTimeout(() => {
+          window.location.replace('/login')
+        }, 500)
+        return () => clearTimeout(timer)
       }
     }, [isLoading, isAuthenticated])
 

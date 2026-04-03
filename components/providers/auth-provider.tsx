@@ -109,14 +109,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (profile && mounted) {
                 setUser(profile)
                 setIsAuthenticated(true)
+                // Set loading false IMMEDIATELY after setting authenticated
+                // so they always change together, never separately
+                setIsLoading(false)
+              } else {
+                setIsLoading(false)
               }
               resolvingProfile.current = false
+            } else {
+              // No session — user is genuinely logged out
+              setIsLoading(false)
             }
           } catch (error) {
             console.error('Failed to initialize session:', error)
+            setIsLoading(false)
           } finally {
             clearTimeout(timeout)
-            if (mounted) setIsLoading(false)
           }
         }
 
@@ -156,55 +164,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string
   ): Promise<{ error?: string }> => {
-    alert('LOGIN STEP 1: function called')
-    
+    if (!supabase) {
+      return { error: 'Missing Supabase configuration.' }
+    }
     try {
-      alert('LOGIN STEP 2: calling signInWithPassword')
-      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
-      alert('LOGIN STEP 3: got response. error=' + 
-            (error?.message ?? 'none') + 
-            ' session=' + (data?.session ? 'EXISTS' : 'NULL'))
+      if (error) return { error: error.message }
+      if (!data.session) return { error: 'No session returned. Please try again.' }
 
-      if (error) {
-        alert('LOGIN STEP 3 FAIL: ' + error.message)
-        return { error: error.message }
-      }
-
-      if (!data?.session) {
-        alert('LOGIN STEP 3 FAIL: session is null')
-        return { error: 'No session returned.' }
-      }
-
-      alert('LOGIN STEP 4: about to fetchProfile')
-      
-      let profile = null
-      try {
-        profile = await fetchProfile(data.session.user)
-        alert('LOGIN STEP 4 DONE: profile=' + 
-              (profile ? profile.email : 'NULL'))
-      } catch (profileErr: any) {
-        alert('LOGIN STEP 4 CRASH: ' + profileErr.message)
-      }
-
+      const profile = await fetchProfile(data.session.user)
       if (profile) {
         setUser(profile)
         setIsAuthenticated(true)
       }
 
-      alert('LOGIN STEP 5: about to navigate to /dashboard')
+      await new Promise(resolve => setTimeout(resolve, 100))
       window.location.replace('/dashboard')
-      alert('LOGIN STEP 6: navigation called (should never see this)')
-      
       return {}
 
     } catch (err: any) {
-      alert('LOGIN CATCH: ' + err.message)
-      return { error: err.message || 'Network error.' }
+      return { error: err.message || 'Network error. Please try again.' }
     }
   }
 
