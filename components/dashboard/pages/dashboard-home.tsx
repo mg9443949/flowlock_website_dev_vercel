@@ -104,7 +104,11 @@ export default function DashboardHome() {
   const [todayInsight, setTodayInsight] = useState<string | null>(null)
   const [todayInsightLoading, setTodayInsightLoading] = useState(false)
 
-  if (!user) return null
+  useEffect(() => {
+    if (user === null && typeof localStorage !== 'undefined') {
+      localStorage.removeItem('flowlock_stats_cache')
+    }
+  }, [user])
 
   // Pick a daily-rotating quote if the pref is enabled
   useEffect(() => {
@@ -113,6 +117,8 @@ export default function DashboardHome() {
       setMotivationalQuote(MOTIVATIONAL_QUOTES[dayIndex % MOTIVATIONAL_QUOTES.length])
     }
   }, [])
+
+  if (!user) return null
 
   // Fetch AI quick tip when a focus session just ended
   useEffect(() => {
@@ -135,29 +141,9 @@ export default function DashboardHome() {
   }, [lastFocusSession, user])
 
   useEffect(() => {
-    async function fetchData() {
-      setIsLoading(true)
-      try {
-        const timeoutPromise = new Promise<any>((_, reject) => 
-          setTimeout(() => reject(new Error("Supabase query timed out")), 10000)
-        )
+    if (!user?.id) return;
 
-        // Fetch ALL sessions to compute global metrics & insights
-        const response = await Promise.race([
-          supabase
-            .from("study_sessions")
-            .select("*")
-            .eq("user_id", user?.id)
-            .order("started_at", { ascending: true }),
-          timeoutPromise
-        ])
-        
-        const { data: allSessions, error } = response
-        
-        console.log("[DASHBOARD AUDIT] Current user ID:", user?.id)
-        console.log("[DASHBOARD AUDIT] Raw Supabase Error:", error)
-        console.log("[DASHBOARD AUDIT] Raw Supabase Data Array:", allSessions)
-
+    const computeAndSetStats = (allSessions: any[]) => {
         const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         const now = new Date()
         const days: any[] = []
@@ -308,17 +294,14 @@ export default function DashboardHome() {
         // Required to not break productivity charts logic
         let prodMs = 0
         let distMs = 0
-        let totDurationMs = 0
-        const sessionDurations = []
         for (const s of allSessions) {
            prodMs += (s.focused_time_ms || 0)
            distMs += ((s.drowsy_time_ms || 0) + (s.head_turned_time_ms || 0) + (s.face_missing_time_ms || 0) + (s.unauthorized_time_ms || 0))
-           totDurationMs += (s.duration_ms || 0)
-           sessionDurations.push(typeof s.duration_ms === 'number' ? Math.round(s.duration_ms / 60000) : 0)
         }
         setTotalFocusedMs(prodMs)
         setTotalDistractedMs(distMs)
         
+        const sessionDurations = allSessions.map((s: any) => typeof s.duration_ms === 'number' ? Math.round(s.duration_ms / 60000) : 0).reverse()
         let trendUp = false
         if (sessionDurations.length >= 2) {
             const firstHalf = sessionDurations.slice(0, Math.max(1, Math.floor(sessionDurations.length / 2)))
@@ -360,15 +343,58 @@ export default function DashboardHome() {
         }
         setDistractionHourData(hourDistractions.map((val, idx) => ({ name: idx.toString(), value: val })))
         setWorstDistractionHour(worstLabel)
+        
+        setIsLoading(false)
+    }
+
+    async function fetchSessionStats(userId: string) {
+      setIsLoading(true)
+      
+      // LocalStorage caching
+      if (typeof localStorage !== 'undefined') {
+        const cache = localStorage.getItem('flowlock_stats_cache')
+        if (cache) {
+          try {
+            const { sessions, cached_at } = JSON.parse(cache)
+            const ageHours = (Date.now() - new Date(cached_at).getTime()) / 3600000
+            if (ageHours < 24 && Array.isArray(sessions)) {
+              computeAndSetStats(sessions)
+            }
+          } catch(e) {}
+        }
+      }
+
+      try {
+        const { data: allSessions, error } = await supabase
+          .from("study_sessions")
+          .select("*")
+          .eq("user_id", userId)
+          .order("started_at", { ascending: false })
+
+        if (error) {
+          console.error("Dashboard fetch failed:", error)
+          setIsLoading(false)
+          return
+        }
+
+        console.log("[DASHBOARD AUDIT] Raw Supabase Data Array:", allSessions)
+
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('flowlock_stats_cache', JSON.stringify({
+            sessions: allSessions || [],
+            cached_at: new Date().toISOString()
+          }))
+        }
+
+        computeAndSetStats(allSessions || [])
 
       } catch (e) {
         console.error("Failed to fetch dashboard data:", e)
-      } finally {
         setIsLoading(false)
       }
     }
 
-    fetchData()
+    fetchSessionStats(user.id)
   }, [user?.id, lastFocusSession])
 
   // Fetch Today's Insight (once per day, cached in localStorage)
