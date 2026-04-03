@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/utils/supabase/client"
 import type { User } from "@supabase/supabase-js"
@@ -81,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<AuthUser | null>(null)
     const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [isLoading, setIsLoading] = useState(true)
+    const resolvingProfile = useRef(false)
     const router = useRouter()
 
     useEffect(() => {
@@ -100,39 +101,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Check existing session on mount
         const initSession = async () => {
-            try {
-                const { data: { session } } = await supabase.auth.getSession()
-                if (session?.user && mounted) {
-                    const profile = await fetchProfile(session.user)
-                    if (profile && mounted) {
-                        setUser(profile)
-                        setIsAuthenticated(true)
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to initialize session:", error)
-            } finally {
-                clearTimeout(timeout)
-                if (mounted) setIsLoading(false)
+          try {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session?.user && mounted) {
+              resolvingProfile.current = true
+              const profile = await fetchProfile(session.user)
+              if (profile && mounted) {
+                setUser(profile)
+                setIsAuthenticated(true)
+              }
+              resolvingProfile.current = false
             }
+          } catch (error) {
+            console.error('Failed to initialize session:', error)
+          } finally {
+            clearTimeout(timeout)
+            if (mounted) setIsLoading(false)
+          }
         }
 
         initSession()
 
         // Listen for auth state changes (login, logout, token refresh)
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
-                if (event === "SIGNED_IN" && session?.user && mounted) {
-                    const profile = await fetchProfile(session.user)
-                    if (profile && mounted) {
-                        setUser(profile)
-                        setIsAuthenticated(true)
-                    }
-                } else if (event === "SIGNED_OUT" && mounted) {
-                    setUser(null)
-                    setIsAuthenticated(false)
-                }
+          async (event, session) => {
+            if (event === 'SIGNED_IN' && session?.user && mounted) {
+              // If initSession is already resolving the profile, skip —
+              // avoid double fetchProfile calls racing each other
+              if (resolvingProfile.current) return
+              
+              const profile = await fetchProfile(session.user)
+              if (profile && mounted) {
+                setUser(profile)
+                setIsAuthenticated(true)
+                // If isLoading is still true when this fires, 
+                // make sure we resolve it
+                setIsLoading(false)
+              }
+            } else if (event === 'SIGNED_OUT' && mounted) {
+              setUser(null)
+              setIsAuthenticated(false)
             }
+          }
         )
 
         return () => {
@@ -142,35 +152,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }, [])
 
-    const login = async (
-      email: string, 
-      password: string
-    ): Promise<{ error?: string }> => {
-      if (!supabase) {
-        return { error: 'Missing Supabase configuration.' }
-      }
-
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({ 
-          email, 
-          password 
-        })
-
-        if (error) return { error: error.message }
-
-        if (!data.session) {
-          return { error: 'No session returned. Please try again.' }
-        }
-
-        // Let onAuthStateChange handle setting user state
-        // Just navigate directly here
-        window.location.replace('/dashboard')
-        return {}
-
-      } catch (err: any) {
-        return { error: err.message || 'Network error. Please try again.' }
-      }
+  const login = async (
+    email: string,
+    password: string
+  ): Promise<{ error?: string }> => {
+    if (!supabase) {
+      return { error: 'Missing Supabase configuration.' }
     }
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+
+      if (error) return { error: error.message }
+      if (!data.session) return { error: 'No session returned. Please try again.' }
+
+      // Set auth state IMMEDIATELY before navigating
+      // so the dashboard guard never sees an unauthenticated state
+      const profile = await fetchProfile(data.session.user)
+      if (profile) {
+        setUser(profile)
+        setIsAuthenticated(true)
+      }
+
+      // Small delay to ensure React has committed the state update
+      // before the new page mounts and reads isAuthenticated
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      window.location.replace('/dashboard')
+      return {}
+
+    } catch (err: any) {
+      return { error: err.message || 'Network error. Please try again.' }
+    }
+  }
 
     const demoLogin = () => {
         const demoUser: AuthUser = {
