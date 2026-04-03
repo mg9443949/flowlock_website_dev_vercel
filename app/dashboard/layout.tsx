@@ -37,11 +37,20 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     const isStudent = user?.role === "student"
 
     const [hasMountedTracker, setHasMountedTracker] = useState(false)
+    const [loadingTooLong, setLoadingTooLong] = useState(false)
+    
     useEffect(() => {
         if (isStudent && (isOnFocusPage || isFocusActive)) {
             setHasMountedTracker(true)
         }
     }, [isStudent, isOnFocusPage, isFocusActive])
+
+    useEffect(() => {
+      const timer = setTimeout(() => {
+        if (isLoading) setLoadingTooLong(true)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }, [isLoading])
 
     // Show the FocusTracker when: on the focus page OR a session is active.
     // Once mounted, it NEVER unmounts, to prevent destroying background database saves.
@@ -83,25 +92,46 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     }, [isLoading, isAuthenticated])
 
     if (isLoading) {
-        return (
-            <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "100vh",
-                background: "#09090b",
-            }}>
-                <div style={{
-                    width: 40,
-                    height: 40,
-                    border: "3px solid #27272a",
-                    borderTop: "3px solid #a855f7",
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                }} />
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          height: '100vh', background: '#09090b', color: '#fff',
+          gap: '16px', textAlign: 'center', padding: '20px'
+        }}>
+          <div style={{
+            width: 40, height: 40,
+            border: '3px solid #27272a',
+            borderTop: '3px solid #a855f7',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+          {loadingTooLong && (
+            <div style={{ maxWidth: '360px' }}>
+              <p style={{ color: '#f87171', fontWeight: 600, marginBottom: 8 }}>
+                Taking longer than usual...
+              </p>
+              <p style={{ color: '#71717a', fontSize: '14px', lineHeight: 1.6 }}>
+                This may be caused by a browser extension (ad blocker or 
+                privacy tool) blocking the connection. Try disabling 
+                extensions or opening in an Incognito window.
+              </p>
+              <button
+                onClick={() => window.location.replace('/login')}
+                style={{
+                  marginTop: 16, padding: '8px 20px',
+                  background: '#a855f7', color: '#fff',
+                  border: 'none', borderRadius: 8,
+                  cursor: 'pointer', fontSize: 14
+                }}
+              >
+                Back to Login
+              </button>
             </div>
-        )
+          )}
+        </div>
+      )
     }
 
     if (!isAuthenticated) return null
