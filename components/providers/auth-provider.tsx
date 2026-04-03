@@ -144,7 +144,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         try {
+            console.log('[LOGIN] Attempting sign in...')
             const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+            console.log('[LOGIN] Result:', { data, error })
+            console.log('[LOGIN] Session:', data?.session)
+            console.log('[LOGIN] User:', data?.user)
 
             if (error) return { error: error.message }
 
@@ -157,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
             
             router.push("/dashboard")
+            console.log('[LOGIN] Redirect fired')
             return {}
         } catch (err: any) {
             return { error: err.message || "Network connection failed. Please disable your adblocker or firewall." }
