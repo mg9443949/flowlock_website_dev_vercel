@@ -85,10 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         let mounted = true
-        // Safety net: never stay in loading state longer than 3 seconds
+        // Safety net: never stay in loading state longer than 8 seconds
         const timeout = setTimeout(() => {
             if (mounted) setIsLoading(false)
-        }, 3000)
+        }, 8000)
 
         // Guard: if env vars are missing, fail fast
         if (!supabase) {
@@ -143,49 +143,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const login = async (
-    email: string,
-    password: string
-  ): Promise<{ error?: string }> => {
-    alert('STEP 1: login() called')
-    
-    if (!supabase) {
-      alert('STEP 1 FAIL: supabase is null')
-      return { error: 'Missing Supabase configuration.' }
+      email: string, 
+      password: string
+    ): Promise<{ error?: string }> => {
+      if (!supabase) {
+        return { error: 'Missing Supabase configuration.' }
+      }
+
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ 
+          email, 
+          password 
+        })
+
+        if (error) return { error: error.message }
+
+        if (!data.session) {
+          return { error: 'No session returned. Please try again.' }
+        }
+
+        // Let onAuthStateChange handle setting user state
+        // Just navigate directly here
+        window.location.replace('/dashboard')
+        return {}
+
+      } catch (err: any) {
+        return { error: err.message || 'Network error. Please try again.' }
+      }
     }
-
-    alert('STEP 2: calling signInWithPassword...')
-    
-    let data: any, error: any
-    try {
-      const result = await supabase.auth.signInWithPassword({ 
-        email, 
-        password 
-      })
-      data = result.data
-      error = result.error
-    } catch (err: any) {
-      alert('STEP 2 FAIL: ' + err.message)
-      return { error: err.message }
-    }
-
-    alert('STEP 3: auth returned. error=' + (error?.message ?? 'none') + 
-          ' session=' + (data?.session ? 'EXISTS' : 'NULL'))
-
-    if (error) {
-      alert('STEP 3 FAIL: ' + error.message)
-      return { error: error.message }
-    }
-
-    if (!data?.session) {
-      alert('STEP 3 FAIL: session is null')
-      return { error: 'No session returned.' }
-    }
-
-    alert('STEP 4: about to call window.location.replace...')
-    window.location.replace('/dashboard')
-    alert('STEP 5: replace called (you should never see this)')
-    return {}
-  }
 
     const demoLogin = () => {
         const demoUser: AuthUser = {

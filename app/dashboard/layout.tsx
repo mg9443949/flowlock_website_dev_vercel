@@ -37,8 +37,6 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     const isStudent = user?.role === "student"
 
     const [hasMountedTracker, setHasMountedTracker] = useState(false)
-    const [checking, setChecking] = useState(true)
-
     useEffect(() => {
         if (isStudent && (isOnFocusPage || isFocusActive)) {
             setHasMountedTracker(true)
@@ -50,18 +48,14 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     const shouldMountTracker = hasMountedTracker
 
     useEffect(() => {
-      const checkAuth = async () => {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          window.location.replace('/login')
-        } else {
-          setChecking(false)
-        }
+      // Only redirect if auth has FINISHED loading and user is NOT authenticated
+      // Never redirect while isLoading is still true
+      if (!isLoading && !isAuthenticated) {
+        window.location.replace('/login')
       }
-      checkAuth()
-    }, [])
+    }, [isLoading, isAuthenticated])
 
-    if (checking || isLoading) {
+    if (isLoading) {
         return (
             <div style={{
                 display: "flex",
@@ -83,6 +77,7 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
         )
     }
 
+    if (!isAuthenticated) return null
     if (!user) return null
 
     const formatElapsed = (seconds: number) => {
