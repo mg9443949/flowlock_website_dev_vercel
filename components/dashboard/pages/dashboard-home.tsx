@@ -241,7 +241,9 @@ export default function DashboardHome() {
     else if (todaySessions.length >= 1) insightMsg = "Great start — keep it up! 🔥"
 
     let distMs = 0
+    let allTimeDurMs = 0
     for (const s of allSessions) {
+       allTimeDurMs += (s.duration_ms || 0)
        distMs += ((s.drowsy_time_ms || 0) + (s.head_turned_time_ms || 0) + (s.face_missing_time_ms || 0) + (s.unauthorized_time_ms || 0))
     }
 
@@ -278,6 +280,7 @@ export default function DashboardHome() {
       dailyData: days,
       totalFocusedMs: totalFocusedMs,
       totalDistractedMs: distMs,
+      allTimeDurationMs: allTimeDurMs,
       recentSessionDurations: sessionDurations.slice(-7),
       isSessionTrendUp: trendUp,
       distractionHourData: hourDistractions.map((val, idx) => ({ name: idx.toString(), value: val }))
@@ -299,6 +302,7 @@ export default function DashboardHome() {
     dailyData,
     totalFocusedMs,
     totalDistractedMs,
+    allTimeDurationMs,
     recentSessionDurations,
     isSessionTrendUp,
     distractionHourData
@@ -352,15 +356,27 @@ export default function DashboardHome() {
   if (!user) return null
 
 
-  // Compute productivity distribution from real data
-  const productivePercent = totalStudyMs > 0 ? Math.round((totalFocusedMs / totalStudyMs) * 100) : 0
-  const distractedPercent = totalStudyMs > 0 ? Math.round((totalDistractedMs / totalStudyMs) * 100) : 0
-  const neutralPercent = Math.max(0, 100 - productivePercent - distractedPercent)
+  // Compute productivity distribution from real data using exact formula ensuring exactly 100%
+  const totalDuration = allTimeDurationMs
+  const distractedMs = totalDistractedMs
+  const productiveMs = totalFocusedMs
+
+  const neutralMs = Math.max(0, totalDuration - productiveMs - distractedMs)
+
+  const divisor = totalDuration > 0 ? totalDuration : 1
+  const productivePct = Math.round((productiveMs / divisor) * 100)
+  const distractedPct = Math.round((distractedMs / divisor) * 100)
+  const neutralPct = 100 - productivePct - distractedPct
+
+  const clamp = (n: number) => Math.min(100, Math.max(0, n))
+  const finalProductive = totalDuration === 0 ? 0 : clamp(productivePct)
+  const finalDistracted = totalDuration === 0 ? 0 : clamp(distractedPct)
+  const finalNeutral = totalDuration === 0 ? 0 : clamp(100 - finalProductive - finalDistracted)
 
   const productivityData = [
-    { name: "Productive", value: productivePercent, color: "#a78bfa" },
-    { name: "Neutral", value: neutralPercent, color: "#60a5fa" },
-    { name: "Distracted", value: distractedPercent, color: "#f87171" },
+    { name: "Productive", value: finalProductive, color: "#a855f7" },
+    { name: "Neutral", value: finalNeutral, color: "#60a5fa" },
+    { name: "Distracted", value: finalDistracted, color: "#f87171" },
   ]
 
   // Format avg session time
@@ -796,8 +812,8 @@ export default function DashboardHome() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-3xl font-bold text-foreground">{productivePercent}%</span>
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Focused</span>
+                    <span className="text-3xl font-bold text-foreground">{finalProductive}%</span>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">FOCUSED</span>
                   </div>
                 </div>
                 {/* Legend with % values */}
