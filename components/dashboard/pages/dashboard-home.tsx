@@ -66,6 +66,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 import { useAuth } from "@/components/providers/auth-provider"
 import { useFocus } from "@/components/providers/focus-provider"
 import { useStudySessions } from "@/hooks/use-study-sessions"
+import { VaultManager } from "@/components/vault/VaultManager"
 
 // Helper: ms to hours
 function msToHours(ms: number) {
@@ -778,6 +779,17 @@ export default function DashboardHome() {
           )}
         </CardContent>
       </Card>
+
+      {/* Distraction Vault */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <h2 className="text-lg font-bold tracking-tight">Distraction Vault</h2>
+          <span className="text-xs text-muted-foreground font-medium px-2 py-0.5 rounded-full bg-muted border border-border/50">
+            Blocked during sessions
+          </span>
+        </div>
+        <VaultManager />
+      </div>
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
