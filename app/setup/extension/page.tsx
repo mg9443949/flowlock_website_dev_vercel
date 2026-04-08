@@ -1,3 +1,5 @@
+"use client"
+
 import React from "react"
 import Link from "next/link"
 import { ExternalLink, Copy, Check, Download, MousePointer, ShieldAlert, MonitorPlay } from "lucide-react"
