@@ -3,13 +3,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const blockedStatusContainer = document.getElementById("blockedStatusContainer");
   const loginForm = document.getElementById("loginForm");
   const connectedView = document.getElementById("connectedView");
-
-  const supabaseUrlInput = document.getElementById("supabaseUrl");
-  const anonKeyInput = document.getElementById("anonKey");
-  const userIdInput = document.getElementById("userId");
-  const tokenInput = document.getElementById("token");
   
-  const saveBtn = document.getElementById("saveBtn");
+  const connectBtn = document.getElementById("connectBtn");
   const logoutBtn = document.getElementById("logoutBtn");
 
   async function updateUI() {
@@ -41,49 +36,35 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  // Initial UI render
+  // Initial render
   await updateUI();
 
-  // Save credentials
-  saveBtn.addEventListener("click", async () => {
-    const url = supabaseUrlInput.value.trim();
-    const key = anonKeyInput.value.trim();
-    const id = userIdInput.value.trim();
-    const token = tokenInput.value.trim();
-
-    if (url && key && id && token) {
-      saveBtn.textContent = "Saving...";
-      saveBtn.disabled = true;
-      
-      await chrome.storage.local.set({
-        supabaseUrl: url,
-        anonKey: key,
-        userId: id,
-        token: token,
-        // Reset state so next sync calculates fresh
-        sessionActive: false,
-        blockedCount: 0
-      });
-      
-      saveBtn.textContent = "Connect to FlowLock";
-      saveBtn.disabled = false;
-      
-      // Attempt immediate sync
-      chrome.runtime.sendMessage({ action: "sync_now" }).catch(() => {});
-      
-      // Give the background script a short moment to sync, then update UI
-      setTimeout(updateUI, 1000);
+  // Listen for storage changes to seamlessly update UI when auth completes in another tab
+  chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'local' && changes.token) {
       updateUI();
     }
   });
 
-  // Logout
+  // Connect button opens the callback handler on the web app
+  connectBtn.addEventListener("click", () => {
+    window.open("http://localhost:3000/auth/extension-callback", "_blank");
+  });
+
+  // Logout wipes storage and clears rules
   logoutBtn.addEventListener("click", async () => {
-    await chrome.storage.local.remove(["supabaseUrl", "anonKey", "userId", "token", "sessionActive", "blockedCount"]);
+    await chrome.storage.local.remove([
+      "supabaseUrl", 
+      "anonKey", 
+      "userId", 
+      "token", 
+      "refreshToken", 
+      "sessionActive", 
+      "blockedCount"
+    ]);
     
-    // Trigger sync to clear rules immediately
+    // Explicit sync trigger to drop declarative rules right away
     chrome.runtime.sendMessage({ action: "sync_now" }).catch(() => {});
-    
     await updateUI();
   });
 });
