@@ -23,5 +23,14 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "FlowLock Vault"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://flowlock-website-dev-vercel.vercel.app/*",
+        "http://localhost:3000/*"
+      ],
+      "js": ["content.js"]
+    }
+  ]
 }

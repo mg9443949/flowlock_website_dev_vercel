@@ -34,31 +34,11 @@ function useConnectionStatus(): ConnectionStatus {
     let isMounted = true
 
     async function fetchStatus() {
-      // 1. Check Chrome Extension via local Messaging API
+      // 1. Check Chrome Extension via injected localStorage flag
       let liveExtensionConnected = false
-      if (typeof window !== "undefined" && (window as any).chrome?.runtime?.sendMessage) {
+      if (typeof window !== "undefined") {
         try {
-          const extensionId = process.env.NEXT_PUBLIC_EXTENSION_ID
-          if (extensionId) {
-            liveExtensionConnected = await new Promise<boolean>((resolve) => {
-              const timeout = setTimeout(() => resolve(false), 1000)
-              try {
-                ;(window as any).chrome.runtime.sendMessage(extensionId, { type: "PING" }, (response: any) => {
-                  clearTimeout(timeout)
-                  if ((window as any).chrome.runtime.lastError) {
-                    resolve(false)
-                  } else if (response?.status === "connected") {
-                    resolve(true)
-                  } else {
-                    resolve(false)
-                  }
-                })
-              } catch {
-                clearTimeout(timeout)
-                resolve(false)
-              }
-            })
-          }
+          liveExtensionConnected = window.localStorage.getItem('flowlock_extension_connected') === 'true';
         } catch {}
       }
 
