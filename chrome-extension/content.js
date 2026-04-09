@@ -1,43 +1,42 @@
 (function() {
   window.localStorage.setItem('flowlock_extension_connected', 'true');
 
-  const authKey = Object.keys(localStorage).find(
-    k => k.startsWith('sb-') && k.endsWith('-auth-token')
-  );
-  if (!authKey) return;
+  function getSession() {
+    const authKey = Object.keys(localStorage).find(
+      k => k.startsWith('sb-') && k.endsWith('-auth-token')
+    );
+    if (!authKey) return null;
+    try {
+      return JSON.parse(localStorage.getItem(authKey));
+    } catch(e) { return null; }
+  }
 
-  try {
-    const session = JSON.parse(localStorage.getItem(authKey));
-    if (!session?.access_token) return;
-
-    const payload = {
+  function sendAuth(session) {
+    chrome.runtime.sendMessage({
       type: 'SET_AUTH',
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       user_id: session.user?.id
-    };
-
-    // Try sending immediately
-    chrome.runtime.sendMessage(payload, (response) => {
-      if (chrome.runtime.lastError) {
-        // Background not ready yet — retry after 1 second
-        setTimeout(() => {
-          chrome.runtime.sendMessage(payload, () => {
-            if (chrome.runtime.lastError) {
-              // Final fallback: write directly to chrome.storage.local
-              // This guarantees the token is persisted even if the service worker
-              // is still cold-starting
-              chrome.storage.local.set({
-                'sb-access-token': session.access_token,
-                'sb-refresh-token': session.refresh_token,
-                'sb-user-id': session.user?.id
-              });
-            }
-          });
-        }, 1000);
-      }
-    });
-  } catch(e) {
-    console.error('FlowLock content.js error:', e);
+    }, () => void chrome.runtime.lastError);
   }
+
+  // Try immediately
+  const session = getSession();
+  if (session?.access_token) {
+    sendAuth(session);
+  }
+
+  // Also try after page fully loads (catches SPAs that hydrate late)
+  window.addEventListener('load', () => {
+    const s = getSession();
+    if (s?.access_token) sendAuth(s);
+  });
+
+  // Also watch for auth changes (e.g. user logs in on this tab)
+  window.addEventListener('storage', (e) => {
+    if (e.key?.startsWith('sb-') && e.key?.endsWith('-auth-token')) {
+      const s = getSession();
+      if (s?.access_token) sendAuth(s);
+    }
+  });
 })();
