@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Connect button → open production FlowLock dashboard (user logs in there)
   connectBtn.addEventListener("click", () => {
     chrome.tabs.create({
-      url: "https://flowlock-website-dev-vercel.vercel.app"
+      url: "https://flowlock-website-dev-vercel.vercel.app/auth/extension-callback"
     });
   });
 
