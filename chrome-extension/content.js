@@ -9,43 +9,37 @@
     try {
       const raw = localStorage.getItem(authKey);
       const parsed = JSON.parse(raw);
-      // Handle both direct session and wrapped { currentSession: ... } formats
       return parsed?.access_token ? parsed : parsed?.currentSession ?? null;
     } catch (e) { return null; }
   }
 
-  function sendAuth(session) {
+  function writeTokenForBackground(session) {
     if (!session?.access_token) return;
-    chrome.runtime.sendMessage({
-      type: 'SET_AUTH',
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      user_id: session.user?.id
-    }, () => void chrome.runtime.lastError);
+    // Write to a special key that background.js watches via storage.onChanged
+    chrome.storage.local.set({
+      'sb-access-token': session.access_token,
+      'sb-refresh-token': session.refresh_token,
+      'sb-user-id': session.user?.id
+    });
   }
 
   function trySync() {
     const session = getSession();
     if (session?.access_token) {
-      sendAuth(session);
+      writeTokenForBackground(session);
       return true;
     }
     return false;
   }
 
-  // Try immediately
   if (!trySync()) {
-    // If not ready yet, poll every 500ms for up to 10 seconds
     let attempts = 0;
     const interval = setInterval(() => {
       attempts++;
-      if (trySync() || attempts >= 20) {
-        clearInterval(interval);
-      }
+      if (trySync() || attempts >= 20) clearInterval(interval);
     }, 500);
   }
 
-  // Also watch for future auth changes
   window.addEventListener('storage', (e) => {
     if (e.key?.startsWith('sb-') && e.key?.endsWith('-auth-token')) {
       trySync();
