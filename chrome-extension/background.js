@@ -3,10 +3,10 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const BLOCKED_URL = "https://flowlock-website-dev-vercel.vercel.app/blocked";
 const FLOWLOCK_URL = "https://flowlock-website-dev-vercel.vercel.app";
 
-// ── On install, set alarm ──────────────────────────────────────────────────
+// ── On install, set alarm + sync immediately ───────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("syncVault", { periodInMinutes: 1 });
-  grabTokenAndSync(); // sync immediately on install
+  grabTokenAndSync();
 });
 
 // ── On browser startup, sync immediately ──────────────────────────────────
@@ -65,6 +65,10 @@ async function grabTokenAndSync() {
       });
       console.log('[FlowLock] Token stored from tab injection');
       await syncVaultAndBlock();
+    } else {
+      // No token found in tab — treat as logged out, clear everything
+      console.log('[FlowLock] No token in tab, clearing rules');
+      await disconnectAndClear();
     }
   } catch (err) {
     console.error('[FlowLock] Script injection failed:', err);
@@ -72,8 +76,10 @@ async function grabTokenAndSync() {
   }
 }
 
-// ── On popup connect button (manual trigger) ───────────────────────────────
+// ── Message listener ───────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
+  // Manual auth set from popup
   if (message.type === 'SET_AUTH') {
     chrome.storage.local.set({
       'sb-access-token': message.access_token,
@@ -86,6 +92,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // ✅ FIX 2 — Disconnect handler: clears token + rules
+  if (message.type === 'DISCONNECT') {
+    disconnectAndClear().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  // Manual sync trigger
   if (message.action === 'sync_now') {
     grabTokenAndSync().then(() => sendResponse({ status: 'done' }));
     return true;
@@ -106,6 +119,7 @@ async function clearBlockingRules() {
   const oldRuleIds = oldRules.map(r => r.id);
   if (oldRuleIds.length > 0) {
     await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: oldRuleIds });
+    console.log('[FlowLock] Blocking rules cleared');
   }
 }
 
@@ -124,7 +138,7 @@ async function applyBlockingRules(domains) {
       priority: 1,
       action: { type: "redirect", redirect: { url: BLOCKED_URL } },
       condition: {
-        urlFilter: `||${clean}/`,  // ✅ correct declarativeNetRequest syntax
+        urlFilter: `||${clean}/`,
         resourceTypes: ["main_frame"]
       }
     };
@@ -132,6 +146,19 @@ async function applyBlockingRules(domains) {
 
   await chrome.declarativeNetRequest.updateDynamicRules({ addRules });
   console.log('[FlowLock] Rules applied:', addRules.map(r => r.condition.urlFilter));
+}
+
+// ✅ FIX 2 — Disconnect: wipe token from storage + clear all blocking rules
+async function disconnectAndClear() {
+  await chrome.storage.local.remove([
+    'sb-access-token',
+    'sb-refresh-token',
+    'sb-user-id',
+    'sessionActive',
+    'blockedCount'
+  ]);
+  await clearBlockingRules();
+  console.log('[FlowLock] Disconnected and all rules cleared');
 }
 
 // ── Core sync ──────────────────────────────────────────────────────────────
@@ -147,6 +174,7 @@ async function syncVaultAndBlock() {
   }
 
   try {
+    // Query only sessions where ended_at IS NULL (truly active)
     const sessionRes = await fetch(
       `${SUPABASE_URL}/rest/v1/study_sessions?ended_at=is.null&select=id`,
       { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
@@ -154,16 +182,24 @@ async function syncVaultAndBlock() {
 
     if (!sessionRes.ok) {
       console.warn('[FlowLock] Session fetch failed:', sessionRes.status);
-      await clearBlockingRules();
+      // ✅ FIX 1 — 401 means token expired → disconnect cleanly
+      if (sessionRes.status === 401) {
+        console.warn('[FlowLock] Token expired, disconnecting');
+        await disconnectAndClear();
+      } else {
+        await clearBlockingRules();
+      }
       return;
     }
 
     const sessions = await sessionRes.json();
     console.log('[FlowLock] Active sessions:', sessions.length);
 
-    if (!sessions.length) {
+    // ✅ FIX 1 — No active session = always clear rules immediately
+    if (!sessions || sessions.length === 0) {
       await clearBlockingRules();
       await chrome.storage.local.set({ sessionActive: false, blockedCount: 0 });
+      console.log('[FlowLock] No active session — blocking disabled');
       return;
     }
 
@@ -173,6 +209,12 @@ async function syncVaultAndBlock() {
       `${SUPABASE_URL}/rest/v1/distraction_vault?type=eq.website&select=identifier`,
       { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
     );
+
+    if (!vaultRes.ok) {
+      console.warn('[FlowLock] Vault fetch failed:', vaultRes.status);
+      await clearBlockingRules();
+      return;
+    }
 
     const vaultItems = await vaultRes.json();
     const domains = vaultItems.map(i => i.identifier);

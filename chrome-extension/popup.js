@@ -7,7 +7,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const logoutBtn = document.getElementById("logoutBtn");
 
   async function updateUI() {
-    // Use the new storage keys set by content.js / SET_AUTH handler
     const data = await chrome.storage.local.get([
       'sb-access-token',
       'sb-user-id',
@@ -28,10 +27,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       if (data.sessionActive) {
         const count = data.blockedCount || 0;
-        blockedStatusContainer.textContent = `${count} site${count !== 1 ? 's' : ''} currently blocked.`;
+        blockedStatusContainer.textContent = `🔒 ${count} site${count !== 1 ? 's' : ''} currently blocked.`;
         blockedStatusContainer.style.color = "#ef4444";
       } else {
-        blockedStatusContainer.textContent = "No active session.";
+        blockedStatusContainer.textContent = "No active session — sites unblocked.";
         blockedStatusContainer.style.color = "#a1a1aa";
       }
     } else {
@@ -47,30 +46,46 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Initial render
   await updateUI();
 
-  // Watch for storage changes so the popup updates after content.js fires in a tab
+  // Watch for storage changes so popup updates live
   chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && (changes['sb-access-token'] || changes.sessionActive)) {
+    if (namespace === 'local' && (
+      changes['sb-access-token'] ||
+      changes['sb-user-id'] ||
+      changes['sessionActive'] ||
+      changes['blockedCount']
+    )) {
       updateUI();
     }
   });
 
-  // Connect button → open production FlowLock dashboard (user logs in there)
+  // Connect button → open FlowLock dashboard for login
   connectBtn.addEventListener("click", () => {
     chrome.tabs.create({
       url: "https://flowlock-website-dev-vercel.vercel.app/auth/extension-callback"
     });
   });
 
-  // Disconnect: clear auth keys and blocking rules
+  // ✅ FIX — Disconnect: send DISCONNECT message to background
+  // which calls disconnectAndClear() to wipe token + clear all blocking rules atomically
   logoutBtn.addEventListener("click", async () => {
-    await chrome.storage.local.remove([
-      'sb-access-token',
-      'sb-refresh-token',
-      'sb-user-id',
-      'sessionActive',
-      'blockedCount'
-    ]);
-    chrome.runtime.sendMessage({ action: "sync_now" }).catch(() => { });
+    logoutBtn.textContent = "Disconnecting...";
+    logoutBtn.disabled = true;
+
+    try {
+      await chrome.runtime.sendMessage({ type: 'DISCONNECT' });
+    } catch (e) {
+      // Service worker may be inactive — clear storage directly as fallback
+      await chrome.storage.local.remove([
+        'sb-access-token',
+        'sb-refresh-token',
+        'sb-user-id',
+        'sessionActive',
+        'blockedCount'
+      ]);
+    }
+
     await updateUI();
+    logoutBtn.textContent = "Disconnect";
+    logoutBtn.disabled = false;
   });
 });
