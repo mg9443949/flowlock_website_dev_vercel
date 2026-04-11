@@ -6,6 +6,7 @@
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback",
     "storage",
     "scripting",
     "alarms",
@@ -33,7 +34,9 @@
         "https://flowlock-website-dev-vercel.vercel.app/*",
         "http://localhost:3000/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]

@@ -6,6 +6,12 @@ const FLOWLOCK_URL = "https://flowlock-website-dev-vercel.vercel.app";
 // ── On install, set alarm ──────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("syncVault", { periodInMinutes: 1 });
+  grabTokenAndSync(); // sync immediately on install
+});
+
+// ── On browser startup, sync immediately ──────────────────────────────────
+chrome.runtime.onStartup.addListener(() => {
+  grabTokenAndSync();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -16,7 +22,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 async function grabTokenAndSync() {
   console.log('[FlowLock] grabTokenAndSync started');
 
-  // Find an open FlowLock tab
   const tabs = await chrome.tabs.query({ url: FLOWLOCK_URL + "/*" });
 
   if (tabs.length === 0) {
@@ -29,7 +34,6 @@ async function grabTokenAndSync() {
   console.log('[FlowLock] Found FlowLock tab:', tab.id);
 
   try {
-    // Inject script directly into the tab to read localStorage
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
@@ -110,16 +114,24 @@ async function applyBlockingRules(domains) {
   if (!domains || domains.length === 0) return;
 
   const addRules = domains.map((domain, index) => {
-    const clean = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    const clean = domain
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .split('/')[0];
+
     return {
       id: index + 1,
       priority: 1,
       action: { type: "redirect", redirect: { url: BLOCKED_URL } },
-      condition: { urlFilter: `*://${clean}/*`, resourceTypes: ["main_frame"] }
+      condition: {
+        urlFilter: `||${clean}/`,  // ✅ correct declarativeNetRequest syntax
+        resourceTypes: ["main_frame"]
+      }
     };
   });
 
   await chrome.declarativeNetRequest.updateDynamicRules({ addRules });
+  console.log('[FlowLock] Rules applied:', addRules.map(r => r.condition.urlFilter));
 }
 
 // ── Core sync ──────────────────────────────────────────────────────────────
