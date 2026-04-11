@@ -102,6 +102,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
     const processDetectionRef = useRef<(faceLandmarks: any[], ctx: CanvasRenderingContext2D) => void>(() => { })
     const authenticateFaceRef = useRef(authenticateFace)
 
+    // ✅ FIX 1 — Track active session ID so we can UPDATE instead of INSERT on stop
+    const activeSessionIdRef = useRef<string | null>(null)
+
     // Track whether a PDF report has already been auto-downloaded for this session
     const hasDownloadedRef = useRef(false)
 
@@ -122,7 +125,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             if ("Notification" in window && Notification.permission === "granted") {
                 new Notification("🚨 High Noise Alert", {
                     body: `Distracting noise detected: ${label}`,
-                    icon: "/favicon.ico" // Assuming favicon exists, fallback is default
+                    icon: "/favicon.ico"
                 })
             }
         })
@@ -131,14 +134,11 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
     // Detect already-loaded Chart.js script (e.g. after SPA navigation)
     useEffect(() => {
         if (typeof (window as any).Chart === "function") setChartLoaded(true)
-
-        // Load face-api models and check enrollment status (in-browser)
         loadModels()
         checkEnrollmentStatus()
     }, [])
 
     // EAR calculation
-    // EAR — works with normalized landmarks (ratio is scale-invariant)
     const calculateEAR = useCallback((landmarks: any[], indices: number[]) => {
         const p = indices.map(i => landmarks[i])
         const v1 = Math.hypot(p[1].x - p[5].x, p[1].y - p[5].y)
@@ -207,7 +207,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         [updateStatusUI]
     )
 
-    // Draw face mesh overlay — landmarks have normalized coords (0-1)
+    // Draw face mesh overlay
     const drawMesh = useCallback((landmarks: any[], ctx: CanvasRenderingContext2D) => {
         if (!landmarks || !canvasRef.current) return
         const w = canvasRef.current.width
@@ -224,7 +224,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         ctx.fillRect(landmarks[1].x * w, landmarks[1].y * h, 5, 5)
     }, [])
 
-    // Process each detection frame — faceLandmarks from MediaPipe
+    // Process each detection frame
     const processDetection = useCallback(
         (faceLandmarks: any[], ctx: CanvasRenderingContext2D) => {
             const now = Date.now()
@@ -248,14 +248,11 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 timersRef.current.unauthorized = 0
             }
 
-            // No face detected
             if (!faceLandmarks || faceLandmarks.length === 0) {
                 timersRef.current.faceMissing += delta
-
                 if (timersRef.current.faceMissing > CONFIG.BUFFER_TIME) {
                     updateDetectionStatus("FACE_MISSING")
                 }
-
                 setMetrics((prev) => ({
                     ...prev,
                     ear: "0.00",
@@ -267,21 +264,17 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 return
             }
 
-            // Face detected → reset faceMissing immediately
             timersRef.current.faceMissing = 0
-            const landmarks = faceLandmarks[0] // first face's landmarks array
+            const landmarks = faceLandmarks[0]
 
-            // EAR — normalized coords, ratio is scale-invariant
             const leftEAR = calculateEAR(landmarks, [33, 160, 158, 133, 153, 144])
             const rightEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380])
             const avgEAR = (leftEAR + rightEAR) / 2
 
-            // Yaw — normalized coords (width cancels out)
             const nose = landmarks[1]
             const midX = (landmarks[33].x + landmarks[263].x) / 2
             const yaw = (nose.x - midX) * 100 * 1.5
 
-            // Update timers — immediate reset when condition clears
             if (avgEAR < CONFIG.EAR_THRESHOLD) {
                 timersRef.current.drowsy += delta
             } else {
@@ -294,7 +287,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 timersRef.current.headTurned = 0
             }
 
-            // Determine status
             if (timersRef.current.drowsy > CONFIG.BUFFER_TIME) {
                 updateDetectionStatus("DROWSY")
             } else if (timersRef.current.headTurned > CONFIG.BUFFER_TIME) {
@@ -316,17 +308,15 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         [calculateEAR, drawMesh, updateDetectionStatus]
     )
 
-    // Keep the ref always pointing to the latest processDetection
     useEffect(() => {
         processDetectionRef.current = processDetection
     }, [processDetection])
 
-    // Keep the ref always pointing to the latest authenticateFace
     useEffect(() => {
         authenticateFaceRef.current = authenticateFace
     }, [authenticateFace])
 
-    // Detection loop — uses detectForVideo (synchronous) and ref for latest processDetection
+    // Detection loop
     const detectLoop = useCallback(() => {
         if (!isRunningRef.current || !videoRef.current || !canvasRef.current || !modelRef.current) return
 
@@ -334,7 +324,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         if (!ctx) return
 
         try {
-            // Guard to ensure video is fully ready before passing it to TensorFlow
             if (videoRef.current.readyState >= 2 && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
                 const results = modelRef.current.detectForVideo(videoRef.current, performance.now())
 
@@ -408,23 +397,19 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         }
     }
 
-    // Start session
+    // ✅ FIX 2 — Start session: insert a row with ended_at = NULL immediately
     const handleStart = useCallback(async () => {
         if (isRunningRef.current) return;
         isRunningRef.current = true;
-        
+
         try {
-            // Request Notification Permissions if needed
             if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
                 await Notification.requestPermission()
             }
 
             setPhase("active")
-
-            // Signal to provider that session is active (preserving existing target)
             startFocusSession(targetDurationRef.current || undefined)
 
-            // Reset state
             timersRef.current = { drowsy: 0, faceMissing: 0, headTurned: 0, unauthorized: 0 }
             statsRef.current = { drowsyCount: 0, faceMissingCount: 0, headTurnedCount: 0, unauthorizedCount: 0 }
             historyRef.current = []
@@ -432,9 +417,8 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             isUnauthorizedRef.current = false
             hasDownloadedRef.current = false
             lastFrameTimeRef.current = Date.now()
+            activeSessionIdRef.current = null // reset before new session
 
-            // ---- INITIALIZATION SEQUENCE UPDATE ----
-            // 1. Load Audio Model FIRST
             updateStatusUI("Loading Audio Distraction Model...", "neutral")
             await startNoise()
 
@@ -447,11 +431,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 canvasRef.current.height = 480
             }
 
-            // 2. Request Camera AFTER Audio Model is ready
             updateStatusUI("Requesting Camera...", "neutral")
             await setupCamera()
 
-            // 3. Load Vision Models
             if (!modelRef.current) {
                 updateStatusUI("Loading Vision AI Models...", "neutral")
                 const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision")
@@ -468,12 +450,35 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 })
             }
 
-            // Load face-api models for background authentication
             await loadModels()
 
             isRunningRef.current = true
             startTimeRef.current = Date.now()
             updateStatusUI("✓ Focused", "focused")
+
+            // ✅ Insert active session row immediately so extension detects it
+            if (supabase && user?.id) {
+                try {
+                    const { data: newSession, error: insertError } = await supabase
+                        .from('study_sessions')
+                        .insert({
+                            user_id: user.id,
+                            started_at: new Date(startTimeRef.current).toISOString(),
+                            // ended_at intentionally omitted — NULL marks session as active
+                        })
+                        .select('id')
+                        .single()
+
+                    if (insertError) {
+                        console.error('[START] Failed to insert active session row:', insertError)
+                    } else if (newSession?.id) {
+                        activeSessionIdRef.current = newSession.id
+                        console.log('[START] Active session row created:', newSession.id)
+                    }
+                } catch (err) {
+                    console.error('[START] Session insert error:', err)
+                }
+            }
 
             // Duration ticker
             durationIntervalRef.current = setInterval(() => {
@@ -482,23 +487,20 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 setFocusElapsed(elapsedSec)
 
                 let displaySec = elapsedSec
-                // Fix: Evaluate using the dynamically updated ref
                 if (targetDurationRef.current) {
                     const remaining = Math.max(0, targetDurationRef.current - elapsedSec)
                     displaySec = remaining
                     if (remaining <= 0) {
-                        // Auto-stop when target is reached
                         handleStopRef.current()
                         return
                     }
                 }
 
-                // ── Smart Break Suggester (Evaluates every 5 minutes) ──
+                // Smart Break Suggester (every 5 minutes)
                 if (elapsedSec > 0 && elapsedSec % 300 === 0) {
                     const now = Date.now()
                     const twentyMinsAgo = now - 20 * 60 * 1000
-                    
-                    // Count unique distracting events in the last 20 mins
+
                     const recentEvents = historyRef.current.filter(
                         (e) => e.start && e.type !== "FOCUSED" && e.time > twentyMinsAgo
                     )
@@ -508,7 +510,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
                     const firstName = user?.name?.split(" ")[0] || "there"
 
-                    // If user focused for 90+ mins continuously
                     if (elapsedSec >= 90 * 60) {
                         toast.message(`Hey ${firstName}, you've been working deeply for over 90 minutes!`, {
                             description: "Your brain needs a reset. I strongly suggest a 15-minute break now.",
@@ -529,7 +530,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                             icon: "⚠️",
                         })
                     } else {
-                        // Going well
                         const compliments = [
                             `You are entirely locked in, ${firstName}. Beautiful focus!`,
                             `No breaks needed. You're in a total flow state!`,
@@ -541,10 +541,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                         })
                     }
                 }
-
             }, 1000) as unknown as NodeJS.Timeout
 
-            // Background auth interval (in-browser using face-api)
+            // Background auth interval
             authIntervalRef.current = setInterval(async () => {
                 if (!videoRef.current || !isRunningRef.current) return
                 try {
@@ -566,9 +565,8 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         }
     }, [setupCamera, detectLoop, updateStatusUI])
 
-    // Stop session
+    // ✅ FIX 3 — Stop session: UPDATE existing row instead of INSERT
     const handleStop = useCallback(() => {
-        // STEP 1 — Compute all stats synchronously
         isRunningRef.current = false
         if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current)
         if (durationIntervalRef.current) clearInterval(durationIntervalRef.current)
@@ -623,15 +621,13 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             unauthorizedTime: unauthorizedDuration,
         }
 
-        // STEP 2 — Immediately fire setPhase("results")
         setResult(computedResult)
         setPhase("results")
         updateStatusUI("Session Complete", "neutral")
 
-        // STEP 3 — Safely stop audio/camera in isolation
         try { stopNoise() } catch (e) { console.warn('stopNoise failed:', e) }
         try { stopFocusSession() } catch (e) { console.warn('stopFocusSession failed:', e) }
-        
+
         try {
             if (videoRef.current?.srcObject) {
                 const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
@@ -641,27 +637,25 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 videoRef.current.srcObject = null
             }
         } catch (e) { console.warn('camera stop failed:', e) }
-        
+
         try {
             const intendedDurationMins = targetDuration ? targetDuration / 60 : totalDuration / 60000
             completeSession(intendedDurationMins)
         } catch (e) { console.warn('completeSession failed:', e) }
-        
+
         try { updateBreakState(false) } catch (e) { console.warn('updateBreakState failed:', e) }
-        
+
         if (onSessionComplete) {
             try { onSessionComplete(computedResult) } catch (e) { console.warn('onSessionComplete failed:', e) }
         }
         try { setLastFocusSession(computedResult) } catch (e) { console.warn('setLastFocusSession failed:', e) }
 
-        // STEP 4 — Save to Supabase in isolation (fire-and-forget)
-        const MAX_SESSION_MS = 24 * 60 * 60 * 1000 // 24 hours max
+        // ✅ FIX 3 — UPDATE the active row, fallback to INSERT if start row creation failed
+        const MAX_SESSION_MS = 24 * 60 * 60 * 1000
         if (supabase && user?.id && startTimeRef.current > 0 && totalDuration > 0 && totalDuration < MAX_SESSION_MS) {
             const saveSession = async () => {
                 try {
-                    const { error } = await supabase.from('study_sessions').insert({
-                        user_id: user.id,
-                        started_at: new Date(startTimeRef.current).toISOString(),
+                    const sessionData = {
                         ended_at: new Date(now).toISOString(),
                         duration_ms: totalDuration,
                         focus_score: score,
@@ -674,35 +668,49 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                         face_missing_time_ms: faceDuration,
                         unauthorized_count: statsRef.current.unauthorizedCount,
                         unauthorized_time_ms: unauthorizedDuration,
-                        high_noise_count: noiseState.highNoiseCount
-                    })
-                    if (error) throw error
-                    
-                    console.log('[SAVE] Insert success')
-                    
-                    // Trigger immediate refetch as backup to Realtime
+                        high_noise_count: noiseState.highNoiseCount,
+                    }
+
+                    if (activeSessionIdRef.current) {
+                        // UPDATE the existing active session row
+                        const { error } = await supabase
+                            .from('study_sessions')
+                            .update(sessionData)
+                            .eq('id', activeSessionIdRef.current)
+
+                        if (error) throw error
+                        console.log('[SAVE] Session updated successfully:', activeSessionIdRef.current)
+                        activeSessionIdRef.current = null
+                    } else {
+                        // Fallback: INSERT full row if start-time insert failed
+                        const { error } = await supabase.from('study_sessions').insert({
+                            user_id: user.id,
+                            started_at: new Date(startTimeRef.current).toISOString(),
+                            ...sessionData,
+                        })
+                        if (error) throw error
+                        console.log('[SAVE] Session inserted (fallback) successfully')
+                    }
+
                     await refetch()
                     console.log('[SAVE] Dashboard refetched')
-                    
+
                 } catch (err) {
-                    console.error('[SAVE] Insert failed:', err)
-                    // show toast only, never affect UI phase
+                    console.error('[SAVE] Save failed:', err)
                     toast.error("Sync failed — data saved locally", { duration: 3000 })
                 }
             }
-            saveSession() // fire and forget
+            saveSession()
         }
 
-        // Show motivational message explicitly at the end
         if (typeof localStorage !== "undefined" && localStorage.getItem("pref_motivational_messages") === "true") {
-            const msg = score >= 80 ? "Phenomenal focus! You are unstoppable!" 
-                      : score >= 50 ? "Solid session! Consistency is key." 
-                      : "Tough session? Rest up and keep going!"
+            const msg = score >= 80 ? "Phenomenal focus! You are unstoppable!"
+                : score >= 50 ? "Solid session! Consistency is key."
+                    : "Tough session? Rest up and keep going!"
             toast.success(msg, { duration: 4000, position: "top-center" })
         }
     }, [onSessionComplete, stopFocusSession, completeSession, targetDuration, updateBreakState, user, setLastFocusSession, noiseState.highNoiseCount, updateStatusUI, stopNoise])
 
-    // STEP 5 — PDF generation moved to on-demand only
     const handleDownloadReport = async () => {
         try {
             if (!result) return;
@@ -720,11 +728,10 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             const { default: autoTable } = await import("jspdf-autotable")
             const doc = new jsPDF()
 
-            // Grade helper
-            const grade = sessionData.score >= 85 ? { label: "A — Excellent", color: [22, 163, 74] as [number,number,number] }
-                : sessionData.score >= 70 ? { label: "B — Good", color: [37, 99, 235] as [number,number,number] }
-                : sessionData.score >= 50 ? { label: "C — Average", color: [217, 119, 6] as [number,number,number] }
-                : { label: "D — Needs Improvement", color: [220, 38, 38] as [number,number,number] }
+            const grade = sessionData.score >= 85 ? { label: "A — Excellent", color: [22, 163, 74] as [number, number, number] }
+                : sessionData.score >= 70 ? { label: "B — Good", color: [37, 99, 235] as [number, number, number] }
+                    : sessionData.score >= 50 ? { label: "C — Average", color: [217, 119, 6] as [number, number, number] }
+                        : { label: "D — Needs Improvement", color: [220, 38, 38] as [number, number, number] }
 
             const fmtMs = (ms: number) => {
                 const totalSec = Math.round(ms / 1000)
@@ -734,7 +741,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 return h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`
             }
 
-            // ── HEADER ──────────────────────────────────────────
             doc.setFillColor(88, 28, 135)
             doc.rect(0, 0, 210, 28, "F")
             doc.setFontSize(20)
@@ -742,19 +748,16 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             doc.setFont("helvetica", "bold")
             doc.text("FlowLock · Focus Session Report", 14, 18)
 
-            // Date
             doc.setFontSize(9)
             doc.setFont("helvetica", "normal")
             doc.setTextColor(220, 220, 255)
             doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 25)
 
-            // Grade badge
             doc.setFontSize(14)
             doc.setFont("helvetica", "bold")
             doc.setTextColor(...grade.color)
             doc.text(`Performance Grade: ${grade.label}`, 14, 42)
 
-            // Core metrics
             doc.setFontSize(11)
             doc.setFont("helvetica", "normal")
             doc.setTextColor(50, 50, 50)
@@ -762,7 +765,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             doc.text(`Total Duration: ${fmtMs(sessionData.duration)}`, 14, 60)
             doc.text(`Focused Time: ${fmtMs(sessionData.focusedTime)}`, 14, 68)
 
-            // ── DISTRACTION TABLE ────────────────────────────────
             const distractionCounts = [
                 { type: "Drowsiness", count: sessionData.drowsyCount, ms: sessionData.drowsyTime },
                 { type: "Head Turned Away", count: sessionData.headTurnedCount, ms: sessionData.headTurnedTime },
@@ -783,7 +785,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 alternateRowStyles: { fillColor: [248, 245, 255] },
             })
 
-            // ── KEY INSIGHTS ─────────────────────────────────────
             const finalY = (doc as any).lastAutoTable.finalY + 12
             doc.setFontSize(13)
             doc.setFont("helvetica", "bold")
@@ -791,13 +792,11 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             doc.text("Key Insights", 14, finalY)
 
             const insights: string[] = []
-            // Biggest distraction
             const biggest = distractionCounts.filter(d => d.type !== "High Noise Interruptions").sort((a, b) => b.ms - a.ms)[0]
             if (biggest && biggest.count > 0) insights.push(`⚠ Most common issue: ${biggest.type} (${biggest.count} event${biggest.count !== 1 ? "s" : ""})`)
             if (sessionData.score >= 80) insights.push("🌟 Outstanding session — you maintained elite-level concentration.")
             else if (sessionData.score >= 60) insights.push("👍 Good session. Reducing " + (biggest?.type?.toLowerCase() ?? "distractions") + " will push you to the next level.")
             else insights.push("💡 Tip: Try working in a quieter space and disable phone notifications.")
-            // Focused time quality
             const focusPct = sessionData.duration > 0 ? Math.round((sessionData.focusedTime / sessionData.duration) * 100) : 0
             insights.push(`🎯 You spent ${focusPct}% of your session in pure focus.`)
 
@@ -813,7 +812,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             console.error("Failed to generate PDF:", error)
         }
     }
-
 
     // Render chart when results phase is entered
     useEffect(() => {
@@ -874,8 +872,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         }
     }, [])
 
-    // External stop detection — when the mini bar's Stop button is pressed,
-    // isFocusActive becomes false; this triggers the actual session stop.
     const handleStopRef = useRef(handleStop)
     useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
     useEffect(() => {
@@ -884,7 +880,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         }
     }, [isFocusActive, phase])
 
-    // External start detection — when StudySession sets it active
     const handleStartRef = useRef(handleStart)
     useEffect(() => { handleStartRef.current = handleStart }, [handleStart])
     useEffect(() => {
@@ -895,7 +890,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
     return (
         <div style={{ display: visible ? undefined : 'none' }}>
-            {/* Chart.js CDN — only dependency still loaded via script tag */}
             <Script
                 src="https://cdn.jsdelivr.net/npm/chart.js"
                 strategy="afterInteractive"
@@ -903,7 +897,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             />
 
             <div className="space-y-8">
-                {/* Header */}
                 <div>
                     <h1 className="text-2xl md:text-3xl font-bold mb-2 flex items-center gap-3">
                         <Eye className="text-primary" size={28} />
@@ -1039,7 +1032,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 {/* ── ACTIVE PHASE ── */}
                 {phase === "active" && (
                     <div className="animate-in fade-in duration-300 space-y-6">
-                        {/* Giant Timer Display */}
                         <div className="flex justify-center py-4">
                             <div className="text-7xl md:text-[120px] font-mono font-bold text-primary tracking-tighter tabular-nums drop-shadow-sm">
                                 {targetDuration
@@ -1049,7 +1041,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                             </div>
                         </div>
 
-                        {/* Status banner */}
                         <div
                             className={`w-full py-4 px-6 text-center text-lg font-bold text-white rounded-xl transition-colors duration-500 ${statusType === "focused"
                                 ? "bg-emerald-500"
@@ -1062,7 +1053,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Video feed */}
                             <div className="lg:col-span-2">
                                 <Card className="overflow-hidden border-border">
                                     <div className="relative bg-black aspect-video">
@@ -1083,7 +1073,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                 </Card>
                             </div>
 
-                            {/* Live metrics panel */}
                             <div>
                                 <Card className="border-border">
                                     <CardHeader>
@@ -1135,7 +1124,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                     </CardContent>
                                 </Card>
 
-                                {/* ── Noise Monitor Panel ── */}
                                 <Card className="border-border">
                                     <CardHeader
                                         className="cursor-pointer select-none pb-2"
@@ -1160,7 +1148,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                                 <p className="text-sm text-amber-500">🎙️ Noise monitoring unavailable — microphone access denied</p>
                                             ) : (
                                                 <>
-                                                    {/* dB Level Bar */}
                                                     <div className="space-y-1">
                                                         <div className="flex justify-between text-xs text-muted-foreground">
                                                             <span>dB Level</span>
@@ -1181,8 +1168,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                                         </div>
                                                     </div>
 
-
-                                                    {/* Noise Status Badge */}
                                                     <div className="flex justify-between items-center px-3 py-2 bg-muted/50 rounded-lg text-sm">
                                                         <span className="text-muted-foreground">Status</span>
                                                         <span
@@ -1201,7 +1186,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                                         </span>
                                                     </div>
 
-                                                    {/* High noise counter */}
                                                     <div className="flex justify-between items-center px-3 py-2 bg-muted/50 rounded-lg text-sm">
                                                         <span className="text-muted-foreground">High Noise Events</span>
                                                         <span className="font-medium">{noiseState.highNoiseCount}</span>
@@ -1236,51 +1220,19 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                 </p>
                             </CardHeader>
                             <CardContent className="space-y-8">
-                                {/* Graphical Representation */}
                                 <div className="max-w-xl mx-auto mb-6 bg-muted/20 p-4 rounded-xl">
                                     <h3 className="text-center font-medium text-muted-foreground mb-4">Productivity Breakdown</h3>
                                     <canvas ref={chartCanvasRef} />
                                 </div>
 
-                                {/* Breakdown Stats */}
                                 <div className="space-y-3 max-w-xl mx-auto">
                                     {[
-                                        {
-                                            label: "Focused Time",
-                                            value: formatTime(result.focusedTime),
-                                            pct: result.score + "%",
-                                            color: "bg-emerald-500",
-                                        },
-                                        {
-                                            label: "Drowsiness Events",
-                                            value: `${result.drowsyCount} times (${formatTime(result.drowsyTime)})`,
-                                            pct: "",
-                                            color: "bg-amber-500",
-                                        },
-                                        {
-                                            label: "Head Turned Events",
-                                            value: `${result.headTurnedCount} times (${formatTime(result.headTurnedTime)})`,
-                                            pct: "",
-                                            color: "bg-red-500",
-                                        },
-                                        {
-                                            label: "Face Not Detected",
-                                            value: `${result.faceMissingCount} times (${formatTime(result.faceMissingTime)})`,
-                                            pct: "",
-                                            color: "bg-gray-500",
-                                        },
-                                        {
-                                            label: "Unauthorized User",
-                                            value: `${result.unauthorizedCount} times (${formatTime(result.unauthorizedTime)})`,
-                                            pct: "",
-                                            color: "bg-purple-500",
-                                        },
-                                        {
-                                            label: "🔊 High Noise Events",
-                                            value: `${result.highNoiseCount} interruptions`,
-                                            pct: "",
-                                            color: "bg-orange-500",
-                                        },
+                                        { label: "Focused Time", value: formatTime(result.focusedTime), pct: result.score + "%", color: "bg-emerald-500" },
+                                        { label: "Drowsiness Events", value: `${result.drowsyCount} times (${formatTime(result.drowsyTime)})`, pct: "", color: "bg-amber-500" },
+                                        { label: "Head Turned Events", value: `${result.headTurnedCount} times (${formatTime(result.headTurnedTime)})`, pct: "", color: "bg-red-500" },
+                                        { label: "Face Not Detected", value: `${result.faceMissingCount} times (${formatTime(result.faceMissingTime)})`, pct: "", color: "bg-gray-500" },
+                                        { label: "Unauthorized User", value: `${result.unauthorizedCount} times (${formatTime(result.unauthorizedTime)})`, pct: "", color: "bg-purple-500" },
+                                        { label: "🔊 High Noise Events", value: `${result.highNoiseCount} interruptions`, pct: "", color: "bg-orange-500" },
                                     ].map((item) => (
                                         <div key={item.label} className="flex items-center gap-3 text-sm">
                                             <div className={`w-3 h-3 rounded-full ${item.color} flex-shrink-0`} />
@@ -1291,15 +1243,11 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                     ))}
                                 </div>
 
-                                {/* 4 Action Buttons */}
                                 <div className="pt-6 border-t border-border">
                                     <h3 className="text-center font-medium text-muted-foreground mb-6">What would you like to do next?</h3>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                         <button
-                                            onClick={() => {
-                                                updateBreakState(true);
-                                                // Optional: force it to skip prompt if you add that state later
-                                            }}
+                                            onClick={() => { updateBreakState(true) }}
                                             className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/15 hover:border-orange-500 transition-all duration-200"
                                         >
                                             <span className="flex items-center justify-center w-12 h-12 rounded-full bg-orange-500/10 text-orange-500 group-hover:scale-110 transition-transform duration-200">
@@ -1308,7 +1256,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                             <span className="font-semibold text-sm text-center">Take a break</span>
                                             <span className="text-xs text-muted-foreground text-center">Start a rest timer</span>
                                         </button>
-                                        
+
                                         <button
                                             onClick={() => router.push("/dashboard/games")}
                                             className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/15 hover:border-primary transition-all duration-200"
