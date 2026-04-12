@@ -3,6 +3,23 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const BLOCKED_URL = "https://flowlock-website-dev-vercel.vercel.app/blocked";
 const FLOWLOCK_URL = "https://flowlock-website-dev-vercel.vercel.app";
 
+// ── Fetch with retry (handles transient network failures) ──────────────────
+async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err) {
+      console.warn(`[FlowLock] Fetch attempt ${i + 1} failed:`, err.message);
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, delayMs));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // ── On install, set alarm + sync immediately ───────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("syncVault", { periodInMinutes: 1 });
@@ -93,7 +110,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ✅ FIX — Immediately re-sync when session ends or vault changes
   if (message.type === 'FORCE_SYNC') {
     syncVaultAndBlock().then(() => sendResponse({ ok: true }));
     return true;
@@ -173,7 +189,7 @@ async function syncVaultAndBlock() {
   }
 
   try {
-    const sessionRes = await fetch(
+    const sessionRes = await fetchWithRetry(
       `${SUPABASE_URL}/rest/v1/study_sessions?ended_at=is.null&select=id`,
       { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
     );
@@ -192,7 +208,6 @@ async function syncVaultAndBlock() {
     const sessions = await sessionRes.json();
     console.log('[FlowLock] Active sessions:', sessions.length);
 
-    // ✅ FIX 1 — No active session = clear rules immediately, every single time
     if (!sessions || sessions.length === 0) {
       await clearBlockingRules();
       await chrome.storage.local.set({ sessionActive: false, blockedCount: 0 });
@@ -202,8 +217,7 @@ async function syncVaultAndBlock() {
 
     await chrome.storage.local.set({ sessionActive: true });
 
-    // ✅ FIX 2 — Always re-fetch vault so removed sites are reflected immediately
-    const vaultRes = await fetch(
+    const vaultRes = await fetchWithRetry(
       `${SUPABASE_URL}/rest/v1/distraction_vault?type=eq.website&select=identifier`,
       { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
     );
@@ -218,12 +232,13 @@ async function syncVaultAndBlock() {
     const domains = vaultItems.map(i => i.identifier);
     console.log('[FlowLock] Blocking domains:', domains);
 
-    // Always reapply — this clears old rules and sets only current vault items
     await applyBlockingRules(domains);
     await chrome.storage.local.set({ blockedCount: domains.length });
 
   } catch (err) {
     console.error('[FlowLock] Sync error:', err);
-    await clearBlockingRules();
+    // Do NOT clear rules on network failure — keep existing rules active
+    // to avoid unblocking sites due to a transient connectivity issue
+    console.warn('[FlowLock] Keeping existing rules due to network error');
   }
 }

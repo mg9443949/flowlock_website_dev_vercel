@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FlowLock Vault",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Block distracting sites during your FlowLock focus sessions.",
   "permissions": [
     "declarativeNetRequest",
@@ -13,7 +13,9 @@
     "tabs"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "https://cutgjwfkgkoynmxpsntr.supabase.co/*",
+    "https://flowlock-website-dev-vercel.vercel.app/*"
   ],
   "externally_connectable": {
     "matches": [
