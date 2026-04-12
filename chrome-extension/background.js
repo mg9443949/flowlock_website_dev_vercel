@@ -66,7 +66,6 @@ async function grabTokenAndSync() {
       console.log('[FlowLock] Token stored from tab injection');
       await syncVaultAndBlock();
     } else {
-      // No token found in tab — treat as logged out, clear everything
       console.log('[FlowLock] No token in tab, clearing rules');
       await disconnectAndClear();
     }
@@ -79,26 +78,27 @@ async function grabTokenAndSync() {
 // ── Message listener ───────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
-  // Manual auth set from popup
   if (message.type === 'SET_AUTH') {
     chrome.storage.local.set({
       'sb-access-token': message.access_token,
       'sb-refresh-token': message.refresh_token,
       'sb-user-id': message.user_id
-    }, () => {
-      syncVaultAndBlock();
-    });
+    }, () => { syncVaultAndBlock(); });
     sendResponse({ ok: true });
     return true;
   }
 
-  // ✅ FIX 2 — Disconnect handler: clears token + rules
   if (message.type === 'DISCONNECT') {
     disconnectAndClear().then(() => sendResponse({ ok: true }));
     return true;
   }
 
-  // Manual sync trigger
+  // ✅ FIX — Immediately re-sync when session ends or vault changes
+  if (message.type === 'FORCE_SYNC') {
+    syncVaultAndBlock().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
   if (message.action === 'sync_now') {
     grabTokenAndSync().then(() => sendResponse({ status: 'done' }));
     return true;
@@ -148,7 +148,6 @@ async function applyBlockingRules(domains) {
   console.log('[FlowLock] Rules applied:', addRules.map(r => r.condition.urlFilter));
 }
 
-// ✅ FIX 2 — Disconnect: wipe token from storage + clear all blocking rules
 async function disconnectAndClear() {
   await chrome.storage.local.remove([
     'sb-access-token',
@@ -174,7 +173,6 @@ async function syncVaultAndBlock() {
   }
 
   try {
-    // Query only sessions where ended_at IS NULL (truly active)
     const sessionRes = await fetch(
       `${SUPABASE_URL}/rest/v1/study_sessions?ended_at=is.null&select=id`,
       { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
@@ -182,7 +180,6 @@ async function syncVaultAndBlock() {
 
     if (!sessionRes.ok) {
       console.warn('[FlowLock] Session fetch failed:', sessionRes.status);
-      // ✅ FIX 1 — 401 means token expired → disconnect cleanly
       if (sessionRes.status === 401) {
         console.warn('[FlowLock] Token expired, disconnecting');
         await disconnectAndClear();
@@ -195,7 +192,7 @@ async function syncVaultAndBlock() {
     const sessions = await sessionRes.json();
     console.log('[FlowLock] Active sessions:', sessions.length);
 
-    // ✅ FIX 1 — No active session = always clear rules immediately
+    // ✅ FIX 1 — No active session = clear rules immediately, every single time
     if (!sessions || sessions.length === 0) {
       await clearBlockingRules();
       await chrome.storage.local.set({ sessionActive: false, blockedCount: 0 });
@@ -205,6 +202,7 @@ async function syncVaultAndBlock() {
 
     await chrome.storage.local.set({ sessionActive: true });
 
+    // ✅ FIX 2 — Always re-fetch vault so removed sites are reflected immediately
     const vaultRes = await fetch(
       `${SUPABASE_URL}/rest/v1/distraction_vault?type=eq.website&select=identifier`,
       { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
@@ -220,6 +218,7 @@ async function syncVaultAndBlock() {
     const domains = vaultItems.map(i => i.identifier);
     console.log('[FlowLock] Blocking domains:', domains);
 
+    // Always reapply — this clears old rules and sets only current vault items
     await applyBlockingRules(domains);
     await chrome.storage.local.set({ blockedCount: domains.length });
 

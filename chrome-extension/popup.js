@@ -65,8 +65,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // ✅ FIX — Disconnect: send DISCONNECT message to background
-  // which calls disconnectAndClear() to wipe token + clear all blocking rules atomically
+  // Disconnect: send DISCONNECT to background which atomically wipes token + clears rules
   logoutBtn.addEventListener("click", async () => {
     logoutBtn.textContent = "Disconnecting...";
     logoutBtn.disabled = true;
@@ -74,7 +73,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       await chrome.runtime.sendMessage({ type: 'DISCONNECT' });
     } catch (e) {
-      // Service worker may be inactive — clear storage directly as fallback
+      // Fallback if service worker is inactive
       await chrome.storage.local.remove([
         'sb-access-token',
         'sb-refresh-token',
