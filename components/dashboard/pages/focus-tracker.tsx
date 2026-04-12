@@ -16,7 +16,6 @@ import { toast } from "sonner"
 import { useFaceAuth } from "@/hooks/use-face-auth"
 import { useStudySessions } from "@/hooks/use-study-sessions"
 
-// Session result data passed to parent
 export interface FocusSessionResult {
     score: number
     duration: number
@@ -37,7 +36,6 @@ interface FocusTrackerProps {
     visible?: boolean
 }
 
-// Detection configuration
 const CONFIG = {
     EAR_THRESHOLD: 0.20,
     HEAD_YAW_THRESHOLD: 25,
@@ -62,27 +60,16 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         yaw: "0°",
     })
     const [result, setResult] = useState<FocusSessionResult | null>(null)
-
     const [noiseExpanded, setNoiseExpanded] = useState(true)
 
-    // Noise detection hook
     const { noiseState, startNoise, stopNoise, setAlertCallback } = useNoiseDetector()
     const { user } = useAuth()
     const { startFocusSession, isFocusActive, focusElapsed, targetDuration, setFocusElapsed, stopFocusSession, setLastFocusSession } = useFocus()
     const { updateBreakState, completeSession } = usePomodoro()
     const { refetch } = useStudySessions()
     const router = useRouter()
-    const {
-        loadModels,
-        isModelsLoaded,
-        isEnrolled,
-        checkEnrollmentStatus,
-        enrollFace,
-        authenticateFace,
-        resetFaceData,
-    } = useFaceAuth()
+    const { loadModels, isModelsLoaded, isEnrolled, checkEnrollmentStatus, enrollFace, authenticateFace, resetFaceData } = useFaceAuth()
 
-    // Refs for mutable state that persists across frames
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -101,44 +88,30 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
     const isUnauthorizedRef = useRef<boolean>(false)
     const processDetectionRef = useRef<(faceLandmarks: any[], ctx: CanvasRenderingContext2D) => void>(() => { })
     const authenticateFaceRef = useRef(authenticateFace)
-
-    // ✅ FIX 1 — Track active session ID so we can UPDATE instead of INSERT on stop
-    const activeSessionIdRef = useRef<string | null>(null)
-
-    // Track whether a PDF report has already been auto-downloaded for this session
     const hasDownloadedRef = useRef(false)
-
-    // Fix: Keep a live ref to the targetDuration so the internal setInterval never reads stale closure data
     const targetDurationRef = useRef<number | null>(targetDuration)
-    useEffect(() => { targetDurationRef.current = targetDuration }, [targetDuration])
-
-    // Smart Break History
     const lastDistractionCountRef = useRef(0)
 
-    // Register noise alert callback
+    // ✅ FIX 1 — Track active session ID for update-on-stop
+    const activeSessionIdRef = useRef<string | null>(null)
+
+    useEffect(() => { targetDurationRef.current = targetDuration }, [targetDuration])
+
     useEffect(() => {
         setAlertCallback((label, conf) => {
-            toast.warning(`🚨 High Noise Detected (${label})!`, {
-                duration: 4000,
-                position: "top-right",
-            })
+            toast.warning(`🚨 High Noise Detected (${label})!`, { duration: 4000, position: "top-right" })
             if ("Notification" in window && Notification.permission === "granted") {
-                new Notification("🚨 High Noise Alert", {
-                    body: `Distracting noise detected: ${label}`,
-                    icon: "/favicon.ico"
-                })
+                new Notification("🚨 High Noise Alert", { body: `Distracting noise detected: ${label}`, icon: "/favicon.ico" })
             }
         })
     }, [setAlertCallback])
 
-    // Detect already-loaded Chart.js script (e.g. after SPA navigation)
     useEffect(() => {
         if (typeof (window as any).Chart === "function") setChartLoaded(true)
         loadModels()
         checkEnrollmentStatus()
     }, [])
 
-    // EAR calculation
     const calculateEAR = useCallback((landmarks: any[], indices: number[]) => {
         const p = indices.map(i => landmarks[i])
         const v1 = Math.hypot(p[1].x - p[5].x, p[1].y - p[5].y)
@@ -147,67 +120,60 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         return (v1 + v2) / (2.0 * h)
     }, [])
 
-    // Format milliseconds to mm:ss
     const formatTime = useCallback((ms: number) => {
         const seconds = Math.floor((ms / 1000) % 60)
         const minutes = Math.floor((ms / (1000 * 60)) % 60)
         return `${minutes < 10 ? "0" : ""}${minutes}:${seconds < 10 ? "0" : ""}${seconds}`
     }, [])
 
-    // Update status banner
     const updateStatusUI = useCallback((message: string, type: "focused" | "warning" | "neutral") => {
         setStatusText(message)
         setStatusType(type)
         setMetrics((prev) => ({ ...prev, status: message }))
     }, [])
 
-    // Update detection status with event tracking
-    const updateDetectionStatus = useCallback(
-        (newStatus: DetectionStatus) => {
-            if (currentStatusRef.current === newStatus) return
-            const now = Date.now()
+    const updateDetectionStatus = useCallback((newStatus: DetectionStatus) => {
+        if (currentStatusRef.current === newStatus) return
+        const now = Date.now()
 
-            if (currentStatusRef.current !== "FOCUSED") {
-                historyRef.current.push({ type: currentStatusRef.current, start: false, time: now })
+        if (currentStatusRef.current !== "FOCUSED") {
+            historyRef.current.push({ type: currentStatusRef.current, start: false, time: now })
+        }
+        if (newStatus !== "FOCUSED") {
+            historyRef.current.push({ type: newStatus, start: true, time: now })
+            if (newStatus === "DROWSY") statsRef.current.drowsyCount++
+            if (newStatus === "HEAD_TURNED") statsRef.current.headTurnedCount++
+            if (newStatus === "FACE_MISSING") statsRef.current.faceMissingCount++
+            if (newStatus === "UNAUTHORIZED") statsRef.current.unauthorizedCount++
+        }
+
+        currentStatusRef.current = newStatus
+
+        if (newStatus === "FOCUSED") {
+            updateStatusUI("✓ Focused", "focused")
+        } else if (newStatus === "DROWSY") {
+            updateStatusUI("⚠ Distraction: Drowsiness", "warning")
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification("Focus Alert", { body: "You appear drowsy. Stay alert!" })
             }
-            if (newStatus !== "FOCUSED") {
-                historyRef.current.push({ type: newStatus, start: true, time: now })
-                if (newStatus === "DROWSY") statsRef.current.drowsyCount++
-                if (newStatus === "HEAD_TURNED") statsRef.current.headTurnedCount++
-                if (newStatus === "FACE_MISSING") statsRef.current.faceMissingCount++
-                if (newStatus === "UNAUTHORIZED") statsRef.current.unauthorizedCount++
+        } else if (newStatus === "HEAD_TURNED") {
+            updateStatusUI("⚠ Distraction: Head Turned Away", "warning")
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification("Focus Alert", { body: "Please keep your head facing the screen." })
             }
-
-            currentStatusRef.current = newStatus
-
-            if (newStatus === "FOCUSED") {
-                updateStatusUI("✓ Focused", "focused")
-            } else if (newStatus === "DROWSY") {
-                updateStatusUI("⚠ Distraction: Drowsiness", "warning")
-                if ("Notification" in window && Notification.permission === "granted") {
-                    new Notification("Focus Alert", { body: "You appear drowsy. Stay alert!" })
-                }
-            } else if (newStatus === "HEAD_TURNED") {
-                updateStatusUI("⚠ Distraction: Head Turned Away", "warning")
-                if ("Notification" in window && Notification.permission === "granted") {
-                    new Notification("Focus Alert", { body: "Please keep your head facing the screen." })
-                }
-            } else if (newStatus === "FACE_MISSING") {
-                updateStatusUI("⚠ Distraction: Face Not Detected", "warning")
-                if ("Notification" in window && Notification.permission === "granted") {
-                    new Notification("Focus Alert", { body: "Face not detected. Are you at your screen?" })
-                }
-            } else if (newStatus === "UNAUTHORIZED") {
-                updateStatusUI("⚠ Distraction: Unauthorized Face", "warning")
-                if ("Notification" in window && Notification.permission === "granted") {
-                    new Notification("Focus Alert", { body: "Unauthorized person detected!" })
-                }
+        } else if (newStatus === "FACE_MISSING") {
+            updateStatusUI("⚠ Distraction: Face Not Detected", "warning")
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification("Focus Alert", { body: "Face not detected. Are you at your screen?" })
             }
-        },
-        [updateStatusUI]
-    )
+        } else if (newStatus === "UNAUTHORIZED") {
+            updateStatusUI("⚠ Distraction: Unauthorized Face", "warning")
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification("Focus Alert", { body: "Unauthorized person detected!" })
+            }
+        }
+    }, [updateStatusUI])
 
-    // Draw face mesh overlay
     const drawMesh = useCallback((landmarks: any[], ctx: CanvasRenderingContext2D) => {
         if (!landmarks || !canvasRef.current) return
         const w = canvasRef.current.width
@@ -224,141 +190,107 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         ctx.fillRect(landmarks[1].x * w, landmarks[1].y * h, 5, 5)
     }, [])
 
-    // Process each detection frame
-    const processDetection = useCallback(
-        (faceLandmarks: any[], ctx: CanvasRenderingContext2D) => {
-            const now = Date.now()
-            const delta = now - lastFrameTimeRef.current
-            lastFrameTimeRef.current = now
+    const processDetection = useCallback((faceLandmarks: any[], ctx: CanvasRenderingContext2D) => {
+        const now = Date.now()
+        const delta = now - lastFrameTimeRef.current
+        lastFrameTimeRef.current = now
 
-            if (isUnauthorizedRef.current) {
-                timersRef.current.unauthorized += delta
-                updateDetectionStatus("UNAUTHORIZED")
-                setMetrics((prev) => ({
-                    ...prev,
-                    ear: "0.00",
-                    yaw: "0°",
-                    unauth: (timersRef.current.unauthorized / 1000).toFixed(1) + "s",
-                    doze: (timersRef.current.drowsy / 1000).toFixed(1) + "s",
-                    face: (timersRef.current.faceMissing / 1000).toFixed(1) + "s",
-                    head: (timersRef.current.headTurned / 1000).toFixed(1) + "s",
-                }))
-                return
-            } else {
-                timersRef.current.unauthorized = 0
-            }
-
-            if (!faceLandmarks || faceLandmarks.length === 0) {
-                timersRef.current.faceMissing += delta
-                if (timersRef.current.faceMissing > CONFIG.BUFFER_TIME) {
-                    updateDetectionStatus("FACE_MISSING")
-                }
-                setMetrics((prev) => ({
-                    ...prev,
-                    ear: "0.00",
-                    yaw: "0°",
-                    doze: (timersRef.current.drowsy / 1000).toFixed(1) + "s",
-                    face: (timersRef.current.faceMissing / 1000).toFixed(1) + "s",
-                    head: (timersRef.current.headTurned / 1000).toFixed(1) + "s",
-                }))
-                return
-            }
-
-            timersRef.current.faceMissing = 0
-            const landmarks = faceLandmarks[0]
-
-            const leftEAR = calculateEAR(landmarks, [33, 160, 158, 133, 153, 144])
-            const rightEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380])
-            const avgEAR = (leftEAR + rightEAR) / 2
-
-            const nose = landmarks[1]
-            const midX = (landmarks[33].x + landmarks[263].x) / 2
-            const yaw = (nose.x - midX) * 100 * 1.5
-
-            if (avgEAR < CONFIG.EAR_THRESHOLD) {
-                timersRef.current.drowsy += delta
-            } else {
-                timersRef.current.drowsy = 0
-            }
-
-            if (Math.abs(yaw) > CONFIG.HEAD_YAW_THRESHOLD) {
-                timersRef.current.headTurned += delta
-            } else {
-                timersRef.current.headTurned = 0
-            }
-
-            if (timersRef.current.drowsy > CONFIG.BUFFER_TIME) {
-                updateDetectionStatus("DROWSY")
-            } else if (timersRef.current.headTurned > CONFIG.BUFFER_TIME) {
-                updateDetectionStatus("HEAD_TURNED")
-            } else {
-                updateDetectionStatus("FOCUSED")
-            }
-
+        if (isUnauthorizedRef.current) {
+            timersRef.current.unauthorized += delta
+            updateDetectionStatus("UNAUTHORIZED")
             setMetrics((prev) => ({
-                ...prev,
-                ear: avgEAR.toFixed(2),
-                yaw: Math.round(yaw) + "°",
+                ...prev, ear: "0.00", yaw: "0°",
+                unauth: (timersRef.current.unauthorized / 1000).toFixed(1) + "s",
                 doze: (timersRef.current.drowsy / 1000).toFixed(1) + "s",
                 face: (timersRef.current.faceMissing / 1000).toFixed(1) + "s",
                 head: (timersRef.current.headTurned / 1000).toFixed(1) + "s",
-                unauth: (timersRef.current.unauthorized / 1000).toFixed(1) + "s",
             }))
-        },
-        [calculateEAR, drawMesh, updateDetectionStatus]
-    )
+            return
+        } else {
+            timersRef.current.unauthorized = 0
+        }
 
-    useEffect(() => {
-        processDetectionRef.current = processDetection
-    }, [processDetection])
+        if (!faceLandmarks || faceLandmarks.length === 0) {
+            timersRef.current.faceMissing += delta
+            if (timersRef.current.faceMissing > CONFIG.BUFFER_TIME) {
+                updateDetectionStatus("FACE_MISSING")
+            }
+            setMetrics((prev) => ({
+                ...prev, ear: "0.00", yaw: "0°",
+                doze: (timersRef.current.drowsy / 1000).toFixed(1) + "s",
+                face: (timersRef.current.faceMissing / 1000).toFixed(1) + "s",
+                head: (timersRef.current.headTurned / 1000).toFixed(1) + "s",
+            }))
+            return
+        }
 
-    useEffect(() => {
-        authenticateFaceRef.current = authenticateFace
-    }, [authenticateFace])
+        timersRef.current.faceMissing = 0
+        const landmarks = faceLandmarks[0]
 
-    // Detection loop
+        const leftEAR = calculateEAR(landmarks, [33, 160, 158, 133, 153, 144])
+        const rightEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380])
+        const avgEAR = (leftEAR + rightEAR) / 2
+
+        const nose = landmarks[1]
+        const midX = (landmarks[33].x + landmarks[263].x) / 2
+        const yaw = (nose.x - midX) * 100 * 1.5
+
+        if (avgEAR < CONFIG.EAR_THRESHOLD) { timersRef.current.drowsy += delta }
+        else { timersRef.current.drowsy = 0 }
+
+        if (Math.abs(yaw) > CONFIG.HEAD_YAW_THRESHOLD) { timersRef.current.headTurned += delta }
+        else { timersRef.current.headTurned = 0 }
+
+        if (timersRef.current.drowsy > CONFIG.BUFFER_TIME) {
+            updateDetectionStatus("DROWSY")
+        } else if (timersRef.current.headTurned > CONFIG.BUFFER_TIME) {
+            updateDetectionStatus("HEAD_TURNED")
+        } else {
+            updateDetectionStatus("FOCUSED")
+        }
+
+        setMetrics((prev) => ({
+            ...prev,
+            ear: avgEAR.toFixed(2),
+            yaw: Math.round(yaw) + "°",
+            doze: (timersRef.current.drowsy / 1000).toFixed(1) + "s",
+            face: (timersRef.current.faceMissing / 1000).toFixed(1) + "s",
+            head: (timersRef.current.headTurned / 1000).toFixed(1) + "s",
+            unauth: (timersRef.current.unauthorized / 1000).toFixed(1) + "s",
+        }))
+    }, [calculateEAR, drawMesh, updateDetectionStatus])
+
+    useEffect(() => { processDetectionRef.current = processDetection }, [processDetection])
+    useEffect(() => { authenticateFaceRef.current = authenticateFace }, [authenticateFace])
+
     const detectLoop = useCallback(() => {
         if (!isRunningRef.current || !videoRef.current || !canvasRef.current || !modelRef.current) return
-
         const ctx = canvasRef.current.getContext("2d")
         if (!ctx) return
-
         try {
             if (videoRef.current.readyState >= 2 && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
                 const results = modelRef.current.detectForVideo(videoRef.current, performance.now())
-
                 if (!canvasRef.current) return
                 ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
                 ctx.save()
                 ctx.scale(-1, 1)
                 ctx.translate(-canvasRef.current.width, 0)
-
                 processDetectionRef.current(results.faceLandmarks, ctx)
-
                 ctx.restore()
             }
-        } catch (e) {
-            console.error("Detection frame error:", e)
-        }
-
+        } catch (e) { console.error("Detection frame error:", e) }
         animationIdRef.current = requestAnimationFrame(detectLoop)
     }, [])
 
-    // Setup camera
     const setupCamera = useCallback(async () => {
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480, facingMode: "user" },
-            audio: false,
+            video: { width: 640, height: 480, facingMode: "user" }, audio: false,
         })
         if (videoRef.current) {
             videoRef.current.srcObject = stream
             return new Promise<void>((resolve) => {
                 videoRef.current!.onloadedmetadata = async () => {
-                    try {
-                        await videoRef.current!.play()
-                    } catch (e) {
-                        console.error("Camera play failed", e)
-                    }
+                    try { await videoRef.current!.play() } catch (e) { console.error("Camera play failed", e) }
                     resolve()
                 }
             })
@@ -375,7 +307,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
     const captureAndEnroll = async () => {
         if (!videoRef.current) return
-
         try {
             updateStatusUI("Enrolling face...", "neutral")
             const result = await enrollFace(videoRef.current)
@@ -383,7 +314,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 setPhase("ready")
                 updateStatusUI("System Ready", "neutral")
                 toast.success("Face registered successfully!")
-
                 if (videoRef.current?.srcObject) {
                     const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
                     tracks.forEach(track => track.stop())
@@ -392,15 +322,13 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             } else {
                 updateStatusUI("Error: " + result.message, "warning")
             }
-        } catch (e: any) {
-            updateStatusUI("Error: " + e.message, "warning")
-        }
+        } catch (e: any) { updateStatusUI("Error: " + e.message, "warning") }
     }
 
-    // ✅ FIX 2 — Start session: insert a row with ended_at = NULL immediately
+    // ✅ FIX 1 — Insert session row at START with ended_at = NULL
     const handleStart = useCallback(async () => {
-        if (isRunningRef.current) return;
-        isRunningRef.current = true;
+        if (isRunningRef.current) return
+        isRunningRef.current = true
 
         try {
             if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
@@ -417,19 +345,13 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             isUnauthorizedRef.current = false
             hasDownloadedRef.current = false
             lastFrameTimeRef.current = Date.now()
-            activeSessionIdRef.current = null // reset before new session
+            activeSessionIdRef.current = null
 
             updateStatusUI("Loading Audio Distraction Model...", "neutral")
             await startNoise()
 
-            if (videoRef.current) {
-                videoRef.current.width = 640
-                videoRef.current.height = 480
-            }
-            if (canvasRef.current) {
-                canvasRef.current.width = 640
-                canvasRef.current.height = 480
-            }
+            if (videoRef.current) { videoRef.current.width = 640; videoRef.current.height = 480 }
+            if (canvasRef.current) { canvasRef.current.width = 640; canvasRef.current.height = 480 }
 
             updateStatusUI("Requesting Camera...", "neutral")
             await setupCamera()
@@ -456,7 +378,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             startTimeRef.current = Date.now()
             updateStatusUI("✓ Focused", "focused")
 
-            // ✅ Insert active session row immediately so extension detects it
+            // ✅ Insert active session row so extension detects it immediately
             if (supabase && user?.id) {
                 try {
                     const { data: newSession, error: insertError } = await supabase
@@ -464,7 +386,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                         .insert({
                             user_id: user.id,
                             started_at: new Date(startTimeRef.current).toISOString(),
-                            // ended_at intentionally omitted — NULL marks session as active
+                            // ended_at intentionally omitted — NULL = active session
                         })
                         .select('id')
                         .single()
@@ -486,48 +408,37 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                 const elapsedSec = Math.floor(elapsed / 1000)
                 setFocusElapsed(elapsedSec)
 
-                let displaySec = elapsedSec
                 if (targetDurationRef.current) {
                     const remaining = Math.max(0, targetDurationRef.current - elapsedSec)
-                    displaySec = remaining
-                    if (remaining <= 0) {
-                        handleStopRef.current()
-                        return
-                    }
+                    if (remaining <= 0) { handleStopRef.current(); return }
                 }
 
-                // Smart Break Suggester (every 5 minutes)
                 if (elapsedSec > 0 && elapsedSec % 300 === 0) {
                     const now = Date.now()
                     const twentyMinsAgo = now - 20 * 60 * 1000
-
                     const recentEvents = historyRef.current.filter(
                         (e) => e.start && e.type !== "FOCUSED" && e.time > twentyMinsAgo
                     )
                     const count = recentEvents.length
                     const accel = count - lastDistractionCountRef.current
                     lastDistractionCountRef.current = count
-
                     const firstName = user?.name?.split(" ")[0] || "there"
 
                     if (elapsedSec >= 90 * 60) {
                         toast.message(`Hey ${firstName}, you've been working deeply for over 90 minutes!`, {
                             description: "Your brain needs a reset. I strongly suggest a 15-minute break now.",
-                            duration: 10000,
-                            icon: "🧠",
+                            duration: 10000, icon: "🧠",
                         })
                     } else if (count >= 4) {
                         const breakTime = count >= 6 ? "15min" : "10min"
                         toast.warning(`Hey ${firstName}, you've had ${count} distractions recently.`, {
                             description: `You're showing signs of fatigue. A ${breakTime} break will massively boost your focus!`,
-                            duration: 8000,
-                            icon: "☕",
+                            duration: 8000, icon: "☕",
                         })
                     } else if (accel >= 2) {
                         toast.warning(`Focus is slipping, ${firstName}.`, {
                             description: "Your distraction rate is accelerating. Try to recenter or take a quick 5min breather.",
-                            duration: 6000,
-                            icon: "⚠️",
+                            duration: 6000, icon: "⚠️",
                         })
                     } else {
                         const compliments = [
@@ -535,15 +446,11 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                             `No breaks needed. You're in a total flow state!`,
                             `Immaculate concentration over the last 5 minutes. Keep it up!`,
                         ]
-                        toast.success(compliments[Math.floor(Math.random() * compliments.length)], {
-                            duration: 4000,
-                            icon: "✨",
-                        })
+                        toast.success(compliments[Math.floor(Math.random() * compliments.length)], { duration: 4000, icon: "✨" })
                     }
                 }
             }, 1000) as unknown as NodeJS.Timeout
 
-            // Background auth interval
             authIntervalRef.current = setInterval(async () => {
                 if (!videoRef.current || !isRunningRef.current) return
                 try {
@@ -553,9 +460,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                     } else if (result.authenticated) {
                         isUnauthorizedRef.current = false
                     }
-                } catch (e) {
-                    console.error("Auth error:", e)
-                }
+                } catch (e) { console.error("Auth error:", e) }
             }, 5000) as unknown as NodeJS.Timeout
 
             detectLoop()
@@ -565,7 +470,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         }
     }, [setupCamera, detectLoop, updateStatusUI])
 
-    // ✅ FIX 3 — Stop session: UPDATE existing row instead of INSERT
+    // ✅ FIX 2 — UPDATE existing row at STOP, dispatch session_ended for extension
     const handleStop = useCallback(() => {
         isRunningRef.current = false
         if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current)
@@ -575,10 +480,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         const now = Date.now()
         const totalDuration = now - startTimeRef.current
 
-        let drowsyDuration = 0
-        let headDuration = 0
-        let faceDuration = 0
-        let unauthorizedDuration = 0
+        let drowsyDuration = 0, headDuration = 0, faceDuration = 0, unauthorizedDuration = 0
         let lastEvent: any = null
 
         historyRef.current.forEach((e) => {
@@ -607,17 +509,14 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         const score = Math.round((focusedTime / totalDuration) * 100) || 0
 
         const computedResult: FocusSessionResult = {
-            score,
-            duration: totalDuration,
+            score, duration: totalDuration,
             drowsyCount: statsRef.current.drowsyCount,
             headTurnedCount: statsRef.current.headTurnedCount,
             faceMissingCount: statsRef.current.faceMissingCount,
             unauthorizedCount: statsRef.current.unauthorizedCount,
             highNoiseCount: noiseState.highNoiseCount,
-            focusedTime,
-            drowsyTime: drowsyDuration,
-            headTurnedTime: headDuration,
-            faceMissingTime: faceDuration,
+            focusedTime, drowsyTime: drowsyDuration,
+            headTurnedTime: headDuration, faceMissingTime: faceDuration,
             unauthorizedTime: unauthorizedDuration,
         }
 
@@ -625,15 +524,16 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         setPhase("results")
         updateStatusUI("Session Complete", "neutral")
 
+        // ✅ FIX 2 — Notify extension immediately that session ended
+        window.dispatchEvent(new CustomEvent('flowlock:session_ended'))
+
         try { stopNoise() } catch (e) { console.warn('stopNoise failed:', e) }
         try { stopFocusSession() } catch (e) { console.warn('stopFocusSession failed:', e) }
 
         try {
             if (videoRef.current?.srcObject) {
                 const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
-                tracks.forEach((track) => {
-                    try { track.stop() } catch (e) { console.warn('track stop failed:', e) }
-                })
+                tracks.forEach((track) => { try { track.stop() } catch (e) { } })
                 videoRef.current.srcObject = null
             }
         } catch (e) { console.warn('camera stop failed:', e) }
@@ -643,14 +543,11 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             completeSession(intendedDurationMins)
         } catch (e) { console.warn('completeSession failed:', e) }
 
-        try { updateBreakState(false) } catch (e) { console.warn('updateBreakState failed:', e) }
+        try { updateBreakState(false) } catch (e) { }
+        if (onSessionComplete) { try { onSessionComplete(computedResult) } catch (e) { } }
+        try { setLastFocusSession(computedResult) } catch (e) { }
 
-        if (onSessionComplete) {
-            try { onSessionComplete(computedResult) } catch (e) { console.warn('onSessionComplete failed:', e) }
-        }
-        try { setLastFocusSession(computedResult) } catch (e) { console.warn('setLastFocusSession failed:', e) }
-
-        // ✅ FIX 3 — UPDATE the active row, fallback to INSERT if start row creation failed
+        // ✅ FIX 2 — UPDATE existing row instead of INSERT
         const MAX_SESSION_MS = 24 * 60 * 60 * 1000
         if (supabase && user?.id && startTimeRef.current > 0 && totalDuration > 0 && totalDuration < MAX_SESSION_MS) {
             const saveSession = async () => {
@@ -672,29 +569,26 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                     }
 
                     if (activeSessionIdRef.current) {
-                        // UPDATE the existing active session row
+                        // UPDATE the active row
                         const { error } = await supabase
                             .from('study_sessions')
                             .update(sessionData)
                             .eq('id', activeSessionIdRef.current)
-
                         if (error) throw error
-                        console.log('[SAVE] Session updated successfully:', activeSessionIdRef.current)
+                        console.log('[SAVE] Session updated:', activeSessionIdRef.current)
                         activeSessionIdRef.current = null
                     } else {
-                        // Fallback: INSERT full row if start-time insert failed
+                        // Fallback INSERT if start-row creation failed
                         const { error } = await supabase.from('study_sessions').insert({
                             user_id: user.id,
                             started_at: new Date(startTimeRef.current).toISOString(),
                             ...sessionData,
                         })
                         if (error) throw error
-                        console.log('[SAVE] Session inserted (fallback) successfully')
+                        console.log('[SAVE] Session inserted (fallback)')
                     }
 
                     await refetch()
-                    console.log('[SAVE] Dashboard refetched')
-
                 } catch (err) {
                     console.error('[SAVE] Save failed:', err)
                     toast.error("Sync failed — data saved locally", { duration: 3000 })
@@ -713,7 +607,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
     const handleDownloadReport = async () => {
         try {
-            if (!result) return;
+            if (!result) return
             toast.info("Generating PDF report...", { duration: 2000 })
             await generateAndDownloadPDF(result)
         } catch (err) {
@@ -747,17 +641,14 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             doc.setTextColor(255, 255, 255)
             doc.setFont("helvetica", "bold")
             doc.text("FlowLock · Focus Session Report", 14, 18)
-
             doc.setFontSize(9)
             doc.setFont("helvetica", "normal")
             doc.setTextColor(220, 220, 255)
             doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 25)
-
             doc.setFontSize(14)
             doc.setFont("helvetica", "bold")
             doc.setTextColor(...grade.color)
             doc.text(`Performance Grade: ${grade.label}`, 14, 42)
-
             doc.setFontSize(11)
             doc.setFont("helvetica", "normal")
             doc.setTextColor(50, 50, 50)
@@ -803,60 +694,37 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             doc.setFontSize(10)
             doc.setFont("helvetica", "normal")
             doc.setTextColor(60, 60, 60)
-            insights.forEach((line, i) => {
-                doc.text(line, 14, finalY + 10 + i * 8)
-            })
-
+            insights.forEach((line, i) => { doc.text(line, 14, finalY + 10 + i * 8) })
             doc.save(`flowlock_session_${new Date().toISOString().split('T')[0]}.pdf`)
-        } catch (error) {
-            console.error("Failed to generate PDF:", error)
-        }
+        } catch (error) { console.error("Failed to generate PDF:", error) }
     }
 
-    // Render chart when results phase is entered
     useEffect(() => {
         if (phase === "results" && result && chartCanvasRef.current) {
             const Chart = (window as any).Chart
             if (!Chart) return
-
             if (chartInstanceRef.current) chartInstanceRef.current.destroy()
-
             const ctx = chartCanvasRef.current.getContext("2d")
             chartInstanceRef.current = new Chart(ctx, {
                 type: "bar",
                 data: {
                     labels: ["Drowsy", "Head Turned", "Missing", "Unauthorized", "High Noise"],
-                    datasets: [
-                        {
-                            label: "Number of Distractions",
-                            data: [result.drowsyCount, result.headTurnedCount, result.faceMissingCount, result.unauthorizedCount, result.highNoiseCount],
-                            backgroundColor: ["#f59e0b", "#ef4444", "#6b7280", "#a855f7", "#f97316"],
-                            borderRadius: 4,
-                        },
-                    ],
+                    datasets: [{
+                        label: "Number of Distractions",
+                        data: [result.drowsyCount, result.headTurnedCount, result.faceMissingCount, result.unauthorizedCount, result.highNoiseCount],
+                        backgroundColor: ["#f59e0b", "#ef4444", "#6b7280", "#a855f7", "#f97316"],
+                        borderRadius: 4,
+                    }],
                 },
                 options: {
                     responsive: true,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: (context: any) => `${context.raw} events`
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: { precision: 0, stepSize: 1 }
-                        }
-                    }
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (context: any) => `${context.raw} events` } } },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0, stepSize: 1 } } }
                 },
             })
         }
     }, [phase, result])
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => {
             isRunningRef.current = false
@@ -874,37 +742,21 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
 
     const handleStopRef = useRef(handleStop)
     useEffect(() => { handleStopRef.current = handleStop }, [handleStop])
-    useEffect(() => {
-        if (!isFocusActive && phase === "active") {
-            handleStopRef.current()
-        }
-    }, [isFocusActive, phase])
+    useEffect(() => { if (!isFocusActive && phase === "active") { handleStopRef.current() } }, [isFocusActive, phase])
 
     const handleStartRef = useRef(handleStart)
     useEffect(() => { handleStartRef.current = handleStart }, [handleStart])
-    useEffect(() => {
-        if (isFocusActive && phase === "ready" && isEnrolled === true) {
-            handleStartRef.current()
-        }
-    }, [isFocusActive, phase, isEnrolled])
+    useEffect(() => { if (isFocusActive && phase === "ready" && isEnrolled === true) { handleStartRef.current() } }, [isFocusActive, phase, isEnrolled])
 
     return (
         <div style={{ display: visible ? undefined : 'none' }}>
-            <Script
-                src="https://cdn.jsdelivr.net/npm/chart.js"
-                strategy="afterInteractive"
-                onLoad={() => setChartLoaded(true)}
-            />
-
+            <Script src="https://cdn.jsdelivr.net/npm/chart.js" strategy="afterInteractive" onLoad={() => setChartLoaded(true)} />
             <div className="space-y-8">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-bold mb-2 flex items-center gap-3">
-                        <Eye className="text-primary" size={28} />
-                        Focus Tracker
+                        <Eye className="text-primary" size={28} />Focus Tracker
                     </h1>
-                    <p className="text-muted-foreground text-sm md:text-base">
-                        AI-powered concentration monitoring using your webcam
-                    </p>
+                    <p className="text-muted-foreground text-sm md:text-base">AI-powered concentration monitoring using your webcam</p>
                 </div>
 
                 {/* ── READY PHASE ── */}
@@ -921,7 +773,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                         Uses your webcam and AI-powered face detection to track your focus in real time. Everything runs locally in your browser.
                                     </p>
                                 </div>
-
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md mx-auto">
                                     {[
                                         { icon: "👁️", label: "Detects drowsiness & eye closure" },
@@ -930,66 +781,36 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                         { icon: "📊", label: "Real-time status updates" },
                                     ].map((f) => (
                                         <div key={f.label} className="flex items-center gap-2 text-sm bg-background/50 rounded-lg px-3 py-2">
-                                            <span>{f.icon}</span>
-                                            <span>{f.label}</span>
+                                            <span>{f.icon}</span><span>{f.label}</span>
                                         </div>
                                     ))}
                                 </div>
-
                                 <div className="text-center space-y-2">
                                     {isEnrolled === false ? (
-                                        <Button
-                                            size="lg"
-                                            onClick={handleEnroll}
-                                            className="gap-2 text-base px-8 bg-purple-600 hover:bg-purple-700 text-white"
-                                        >
-                                            <Eye size={20} />
-                                            Enroll Your Face First
+                                        <Button size="lg" onClick={handleEnroll} className="gap-2 text-base px-8 bg-purple-600 hover:bg-purple-700 text-white">
+                                            <Eye size={20} />Enroll Your Face First
                                         </Button>
                                     ) : (
                                         <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
                                             {targetDuration ? (
-                                                <Button
-                                                    size="lg"
-                                                    onClick={handleStart}
-                                                    className="gap-2 text-base px-8"
-                                                >
-                                                    <Play size={20} />
-                                                    Start Focus Session
+                                                <Button size="lg" onClick={handleStart} className="gap-2 text-base px-8">
+                                                    <Play size={20} />Start Focus Session
                                                 </Button>
                                             ) : (
-                                                <Button
-                                                    size="lg"
-                                                    onClick={() => router.push("/dashboard/study")}
-                                                    className="gap-2 text-base px-8"
-                                                >
-                                                    <Play size={20} />
-                                                    Set Timer & Start
+                                                <Button size="lg" onClick={() => router.push("/dashboard/study")} className="gap-2 text-base px-8">
+                                                    <Play size={20} />Set Timer & Start
                                                 </Button>
                                             )}
-                                            <Button
-                                                size="lg"
-                                                variant="outline"
-                                                onClick={async () => {
-                                                    try {
-                                                        await resetFaceData()
-                                                        toast.success("Face data removed. Please enroll again.")
-                                                    } catch {
-                                                        toast.error("Could not reset face data.")
-                                                    }
-                                                }}
-                                                className="gap-2 text-base px-6 bg-transparent"
-                                            >
-                                                <RotateCcw size={18} />
-                                                Re-enroll Face
+                                            <Button size="lg" variant="outline" onClick={async () => {
+                                                try { await resetFaceData(); toast.success("Face data removed. Please enroll again.") }
+                                                catch { toast.error("Could not reset face data.") }
+                                            }} className="gap-2 text-base px-6 bg-transparent">
+                                                <RotateCcw size={18} />Re-enroll Face
                                             </Button>
                                         </div>
                                     )}
                                 </div>
-
-                                <p className="text-xs text-muted-foreground text-center">
-                                    🔒 All processing happens locally. No data is stored or transmitted.
-                                </p>
+                                <p className="text-xs text-muted-foreground text-center">🔒 All processing happens locally. No data is stored or transmitted.</p>
                             </CardContent>
                         </Card>
                     </div>
@@ -1012,7 +833,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                     <span className={`text-sm font-medium mb-4 block ${statusType === "warning" ? "text-red-500" : "text-amber-500"}`}>{statusText}</span>
                                     <div className="flex gap-3 justify-center">
                                         <Button onClick={captureAndEnroll} className="gap-2 bg-purple-600 hover:bg-purple-700 text-white">
-                                            <Eye size={18} /> Capture Face
+                                            <Eye size={18} />Capture Face
                                         </Button>
                                         <Button variant="outline" onClick={() => {
                                             if (videoRef.current?.srcObject) {
@@ -1040,45 +861,23 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                 }
                             </div>
                         </div>
-
-                        <div
-                            className={`w-full py-4 px-6 text-center text-lg font-bold text-white rounded-xl transition-colors duration-500 ${statusType === "focused"
-                                ? "bg-emerald-500"
-                                : statusType === "warning"
-                                    ? "bg-red-500"
-                                    : "bg-gray-500"
-                                }`}
-                        >
+                        <div className={`w-full py-4 px-6 text-center text-lg font-bold text-white rounded-xl transition-colors duration-500 ${statusType === "focused" ? "bg-emerald-500" : statusType === "warning" ? "bg-red-500" : "bg-gray-500"}`}>
                             {statusText}
                         </div>
-
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             <div className="lg:col-span-2">
                                 <Card className="overflow-hidden border-border">
                                     <div className="relative bg-black aspect-video">
-                                        <video
-                                            ref={videoRef}
-                                            playsInline
-                                            muted
-                                            autoPlay
-                                            className="w-full h-full object-cover"
-                                            style={{ transform: "scaleX(-1)" }}
-                                        />
-                                        <canvas
-                                            ref={canvasRef}
-                                            className="absolute inset-0 w-full h-full"
-                                            style={{ transform: "scaleX(-1)" }}
-                                        />
+                                        <video ref={videoRef} playsInline muted autoPlay className="w-full h-full object-cover" style={{ transform: "scaleX(-1)" }} />
+                                        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ transform: "scaleX(-1)" }} />
                                     </div>
                                 </Card>
                             </div>
-
                             <div>
                                 <Card className="border-border">
                                     <CardHeader>
                                         <CardTitle className="text-base flex items-center gap-2">
-                                            <Eye size={18} className="text-primary" />
-                                            Live Metrics
+                                            <Eye size={18} className="text-primary" />Live Metrics
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent className="space-y-3">
@@ -1091,51 +890,24 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                             { label: "Eye Openness (EAR)", value: metrics.ear, id: "ear" },
                                             { label: "Head Turn Angle", value: metrics.yaw, id: "yaw" },
                                         ].map((m) => (
-                                            <div
-                                                key={m.id}
-                                                className="flex justify-between items-center px-3 py-2.5 bg-muted/50 rounded-lg text-sm font-medium"
-                                            >
+                                            <div key={m.id} className="flex justify-between items-center px-3 py-2.5 bg-muted/50 rounded-lg text-sm font-medium">
                                                 <span className="text-muted-foreground">{m.label}</span>
-                                                <span
-                                                    className={
-                                                        m.id === "status"
-                                                            ? statusType === "focused"
-                                                                ? "text-emerald-500"
-                                                                : statusType === "warning"
-                                                                    ? "text-red-500"
-                                                                    : ""
-                                                            : ""
-                                                    }
-                                                >
+                                                <span className={m.id === "status" ? statusType === "focused" ? "text-emerald-500" : statusType === "warning" ? "text-red-500" : "" : ""}>
                                                     {m.value}
                                                 </span>
                                             </div>
                                         ))}
-
-                                        <Button
-                                            variant="destructive"
-                                            onClick={handleStop}
-                                            className="w-full gap-2 mt-4"
-                                            size="lg"
-                                        >
-                                            <Square size={18} />
-                                            Stop Session
+                                        <Button variant="destructive" onClick={handleStop} className="w-full gap-2 mt-4" size="lg">
+                                            <Square size={18} />Stop Session
                                         </Button>
                                     </CardContent>
                                 </Card>
-
                                 <Card className="border-border">
-                                    <CardHeader
-                                        className="cursor-pointer select-none pb-2"
-                                        onClick={() => setNoiseExpanded(!noiseExpanded)}
-                                    >
+                                    <CardHeader className="cursor-pointer select-none pb-2" onClick={() => setNoiseExpanded(!noiseExpanded)}>
                                         <CardTitle className="text-base flex items-center justify-between">
                                             <span className="flex items-center gap-2">
-                                                <Volume2 size={18} className="text-primary" />
-                                                Noise Monitor
-                                                {noiseState.micActive && (
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                                )}
+                                                <Volume2 size={18} className="text-primary" />Noise Monitor
+                                                {noiseState.micActive && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
                                             </span>
                                             {noiseExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                         </CardTitle>
@@ -1154,38 +926,16 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                                             <span>{noiseState.dbLevel > -100 ? noiseState.dbLevel.toFixed(1) : "—"} dBFS</span>
                                                         </div>
                                                         <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                                                            <div
-                                                                className={`h-full rounded-full transition-all duration-300 ${noiseState.noiseStatus === "high"
-                                                                    ? "bg-red-500"
-                                                                    : noiseState.noiseStatus === "moderate"
-                                                                        ? "bg-amber-500"
-                                                                        : "bg-emerald-500"
-                                                                    }`}
-                                                                style={{
-                                                                    width: `${Math.max(0, Math.min(100, ((noiseState.dbLevel + 100) / 100) * 100))}%`,
-                                                                }}
-                                                            />
+                                                            <div className={`h-full rounded-full transition-all duration-300 ${noiseState.noiseStatus === "high" ? "bg-red-500" : noiseState.noiseStatus === "moderate" ? "bg-amber-500" : "bg-emerald-500"}`}
+                                                                style={{ width: `${Math.max(0, Math.min(100, ((noiseState.dbLevel + 100) / 100) * 100))}%` }} />
                                                         </div>
                                                     </div>
-
                                                     <div className="flex justify-between items-center px-3 py-2 bg-muted/50 rounded-lg text-sm">
                                                         <span className="text-muted-foreground">Status</span>
-                                                        <span
-                                                            className={`font-semibold ${noiseState.noiseStatus === "high"
-                                                                ? "text-red-500"
-                                                                : noiseState.noiseStatus === "moderate"
-                                                                    ? "text-amber-500"
-                                                                    : "text-emerald-500"
-                                                                }`}
-                                                        >
-                                                            {noiseState.noiseStatus === "high"
-                                                                ? "🚨 High Noise"
-                                                                : noiseState.noiseStatus === "moderate"
-                                                                    ? "⚠️ Moderate"
-                                                                    : "✅ Quiet"}
+                                                        <span className={`font-semibold ${noiseState.noiseStatus === "high" ? "text-red-500" : noiseState.noiseStatus === "moderate" ? "text-amber-500" : "text-emerald-500"}`}>
+                                                            {noiseState.noiseStatus === "high" ? "🚨 High Noise" : noiseState.noiseStatus === "moderate" ? "⚠️ Moderate" : "✅ Quiet"}
                                                         </span>
                                                     </div>
-
                                                     <div className="flex justify-between items-center px-3 py-2 bg-muted/50 rounded-lg text-sm">
                                                         <span className="text-muted-foreground">High Noise Events</span>
                                                         <span className="font-medium">{noiseState.highNoiseCount}</span>
@@ -1205,17 +955,10 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                     <div className="animate-in fade-in duration-500 space-y-6 max-w-4xl mx-auto">
                         <Card className="border-border">
                             <CardHeader className="text-center">
-                                <div className="mx-auto mb-2 text-6xl">
-                                    {result.score >= 80 ? "🎉" : result.score >= 60 ? "👏" : "✅"}
-                                </div>
-                                <CardTitle className="text-3xl">
-                                    Session Complete!
-                                </CardTitle>
+                                <div className="mx-auto mb-2 text-6xl">{result.score >= 80 ? "🎉" : result.score >= 60 ? "👏" : "✅"}</div>
+                                <CardTitle className="text-3xl">Session Complete!</CardTitle>
                                 <p className="text-muted-foreground text-lg">
-                                    Focus Score:{" "}
-                                    <span className={result.score >= 70 ? "text-emerald-500 font-bold" : "text-amber-500 font-bold"}>
-                                        {result.score}%
-                                    </span>
+                                    Focus Score: <span className={result.score >= 70 ? "text-emerald-500 font-bold" : "text-amber-500 font-bold"}>{result.score}%</span>
                                     {" "} • Duration: {formatTime(result.duration)}
                                 </p>
                             </CardHeader>
@@ -1224,7 +967,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                     <h3 className="text-center font-medium text-muted-foreground mb-4">Productivity Breakdown</h3>
                                     <canvas ref={chartCanvasRef} />
                                 </div>
-
                                 <div className="space-y-3 max-w-xl mx-auto">
                                     {[
                                         { label: "Focused Time", value: formatTime(result.focusedTime), pct: result.score + "%", color: "bg-emerald-500" },
@@ -1242,58 +984,37 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                                         </div>
                                     ))}
                                 </div>
-
                                 <div className="pt-6 border-t border-border">
                                     <h3 className="text-center font-medium text-muted-foreground mb-6">What would you like to do next?</h3>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                        <button
-                                            onClick={() => { updateBreakState(true) }}
-                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/15 hover:border-orange-500 transition-all duration-200"
-                                        >
-                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-orange-500/10 text-orange-500 group-hover:scale-110 transition-transform duration-200">
-                                                <Coffee size={24} />
-                                            </span>
+                                        <button onClick={() => { updateBreakState(true) }}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/15 hover:border-orange-500 transition-all duration-200">
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-orange-500/10 text-orange-500 group-hover:scale-110 transition-transform duration-200"><Coffee size={24} /></span>
                                             <span className="font-semibold text-sm text-center">Take a break</span>
                                             <span className="text-xs text-muted-foreground text-center">Start a rest timer</span>
                                         </button>
-
-                                        <button
-                                            onClick={() => router.push("/dashboard/games")}
-                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/15 hover:border-primary transition-all duration-200"
-                                        >
-                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 text-primary group-hover:scale-110 transition-transform duration-200">
-                                                <Gamepad2 size={24} />
-                                            </span>
+                                        <button onClick={() => router.push("/dashboard/games")}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/15 hover:border-primary transition-all duration-200">
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 text-primary group-hover:scale-110 transition-transform duration-200"><Gamepad2 size={24} /></span>
                                             <span className="font-semibold text-sm text-center">Play Games</span>
                                             <span className="text-xs text-muted-foreground text-center">Relax with a quick game</span>
                                         </button>
-
-                                        <button
-                                            onClick={() => router.push("/dashboard/playlist")}
-                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/15 hover:border-emerald-500 transition-all duration-200"
-                                        >
-                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 group-hover:scale-110 transition-transform duration-200">
-                                                <Mic size={24} />
-                                            </span>
+                                        <button onClick={() => router.push("/dashboard/playlist")}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/15 hover:border-emerald-500 transition-all duration-200">
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 group-hover:scale-110 transition-transform duration-200"><Mic size={24} /></span>
                                             <span className="font-semibold text-sm text-center">Listen to music</span>
                                             <span className="text-xs text-muted-foreground text-center">Chill with your playlist</span>
                                         </button>
-
-                                        <button
-                                            onClick={() => setPhase("ready")}
-                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-muted hover:border-muted-foreground bg-muted/30 hover:bg-muted/60 transition-all duration-200"
-                                        >
-                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-muted-foreground/10 text-muted-foreground group-hover:scale-110 transition-transform duration-200">
-                                                <SkipForward size={24} />
-                                            </span>
+                                        <button onClick={() => setPhase("ready")}
+                                            className="group flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-muted hover:border-muted-foreground bg-muted/30 hover:bg-muted/60 transition-all duration-200">
+                                            <span className="flex items-center justify-center w-12 h-12 rounded-full bg-muted-foreground/10 text-muted-foreground group-hover:scale-110 transition-transform duration-200"><SkipForward size={24} /></span>
                                             <span className="font-semibold text-sm text-center">Skip the break</span>
                                             <span className="text-xs text-muted-foreground text-center">Start a new session</span>
                                         </button>
                                     </div>
                                     <div className="flex justify-center mt-8">
                                         <Button variant="secondary" onClick={handleDownloadReport} className="gap-2">
-                                            <Download size={18} />
-                                            Download PDF Report manually
+                                            <Download size={18} />Download PDF Report manually
                                         </Button>
                                     </div>
                                 </div>
