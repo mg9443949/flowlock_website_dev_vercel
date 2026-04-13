@@ -18,41 +18,26 @@
     }
   }
 
-  function getSession() {
-    const authKey = Object.keys(localStorage).find(
-      (k) => k.startsWith("sb-") && k.endsWith("-auth-token")
-    );
-
-    if (!authKey) return null;
-
-    try {
-      const raw = localStorage.getItem(authKey);
-      const parsed = JSON.parse(raw);
-      return parsed?.access_token ? parsed : parsed?.currentSession ?? null;
-    } catch {
-      return null;
-    }
-  }
-
-  function sendAuth() {
+  function sendMessage(msg) {
     if (!port) return;
-
-    const session = getSession();
-    if (!session?.access_token) return;
-
-    port.postMessage({
-      type: "AUTH_UPDATE",
-      payload: {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        user_id: session.user?.id,
-      },
-    });
+    port.postMessage(msg);
   }
 
+  // 🔥 CONNECT
   window.addEventListener("flowlock:connect_extension", () => {
     if (!port) connectPort();
-    setTimeout(sendAuth, 500);
+  });
+
+  // 🔥 START SESSION
+  window.addEventListener("flowlock:start_session", () => {
+    console.log("[FlowLock] Start session event");
+    sendMessage({ type: "START_SESSION" });
+  });
+
+  // 🔥 END SESSION
+  window.addEventListener("flowlock:end_session", () => {
+    console.log("[FlowLock] End session event");
+    sendMessage({ type: "END_SESSION" });
   });
 
 })();
