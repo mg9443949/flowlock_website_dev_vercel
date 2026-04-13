@@ -5,7 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/components/providers/auth-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { StudentChatbot } from '@/components/StudentChatbot'
-import FlowLockProvider from './flowlockprovider' // ✅ ADD THIS
+import FlowLockProvider from './flowlockprovider' // ✅ FIXED casing
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -18,14 +18,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`font-sans antialiased`}>
+      <body className="font-sans antialiased">
 
-        {/* ✅ ADD FLOWLOCK HERE */}
+        {/* ✅ FlowLock injected once */}
         <FlowLockProvider />
 
         <ThemeProvider
@@ -34,7 +34,10 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+
           <Toaster />
           <StudentChatbot />
         </ThemeProvider>

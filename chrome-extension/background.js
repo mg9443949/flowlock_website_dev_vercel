@@ -1,23 +1,36 @@
-let ports = [];
+let blockedSites = [
+  "youtube.com",
+  "instagram.com",
+  "facebook.com"
+];
 
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "flowlock-connection") return;
+// 🔥 Check every tab update
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!tab.url) return;
 
-  console.log("[FlowLock BG] Port connected");
+  checkAndBlock(tabId, tab.url);
+});
 
-  ports.push(port);
+// 🔥 More reliable navigation detection
+chrome.webNavigation.onCompleted.addListener((details) => {
+  if (details.frameId !== 0) return;
 
-  port.onMessage.addListener((msg) => {
-    if (msg.type === "AUTH_UPDATE") {
-      console.log("[FlowLock BG] Auth received:", msg.payload);
-
-      // 🔥 store globally
-      globalThis.flowlockSession = msg.payload;
+  chrome.tabs.get(details.tabId, (tab) => {
+    if (tab?.url) {
+      checkAndBlock(details.tabId, tab.url);
     }
   });
-
-  port.onDisconnect.addListener(() => {
-    console.log("[FlowLock BG] Port disconnected");
-    ports = ports.filter((p) => p !== port);
-  });
 });
+
+// 🔥 Core blocking logic
+function checkAndBlock(tabId, url) {
+  const isBlocked = blockedSites.some(site => url.includes(site));
+
+  if (isBlocked) {
+    console.log("[FlowLock] Blocking:", url);
+
+    chrome.tabs.update(tabId, {
+      url: "https://flowlock-website-dev-vercel.vercel.app/blocked"
+    });
+  }
+}

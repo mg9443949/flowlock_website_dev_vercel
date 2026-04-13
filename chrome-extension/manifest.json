@@ -4,12 +4,12 @@
   "version": "1.0",
   "permissions": [
     "storage",
+    "tabs",
     "scripting",
-    "tabs"
+    "webNavigation"
   ],
   "host_permissions": [
-    "https://flowlock-website-dev-vercel.vercel.app/*",
-    "https://cutgjwfkgkoynmxpsntr.supabase.co/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -17,7 +17,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://flowlock-website-dev-vercel.vercel.app/*"
+        "<all_urls>"
       ],
       "js": [
         "content.js"

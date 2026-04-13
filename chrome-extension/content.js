@@ -10,12 +10,10 @@
       port.onDisconnect.addListener(() => {
         console.warn("[FlowLock] Port disconnected → retrying...");
         port = null;
-
-        setTimeout(connectPort, 1000); // auto-reconnect
+        setTimeout(connectPort, 1000);
       });
 
-    } catch (err) {
-      console.error("[FlowLock] Port connection failed", err);
+    } catch {
       setTimeout(connectPort, 1000);
     }
   }
@@ -52,20 +50,9 @@
     });
   }
 
-  // 🔥 Listen from frontend
   window.addEventListener("flowlock:connect_extension", () => {
-    console.log("[FlowLock] Connect requested");
-
     if (!port) connectPort();
-
     setTimeout(sendAuth, 500);
-  });
-
-  // 🔥 Auto detect login change
-  window.addEventListener("storage", (e) => {
-    if (e.key?.includes("auth-token")) {
-      sendAuth();
-    }
   });
 
 })();
