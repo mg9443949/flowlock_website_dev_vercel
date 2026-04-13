@@ -4,20 +4,39 @@ const SUPABASE_URL = "https://cutgjwfkgkoynmxpsntr.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN1dGdqd2ZrZ2tveW5teHBzbnRyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMjI1MDksImV4cCI6MjA4ODY5ODUwOX0.y0eHIyS-tZUH4_q3zqGPuDO8oiRlyBsFdN1_dNbvNrE";
 const BLOCKED_URL = "https://flowlock-website-dev-vercel.vercel.app/blocked";
 const FLOWLOCK_URL = "https://flowlock-website-dev-vercel.vercel.app";
-
-// A session open for longer than this is definitely a ghost (crash/refresh/close)
 const MAX_SESSION_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-// ── Fetch with retry ───────────────────────────────────────────────────────
-async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
+// ── Keep service worker alive during fetch operations ─────────────────────
+// MV3 service workers can be killed mid-fetch; this prevents that.
+let keepAliveInterval = null;
+
+function startKeepAlive() {
+  if (keepAliveInterval) return;
+  keepAliveInterval = setInterval(() => {
+    chrome.storage.local.get('extensionConnected', () => { });
+  }, 20000);
+}
+
+function stopKeepAlive() {
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    keepAliveInterval = null;
+  }
+}
+
+// ── Fetch with retry and longer delays ────────────────────────────────────
+async function fetchWithRetry(url, options, retries = 3, delayMs = 2000) {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
       return res;
     } catch (err) {
       console.warn(`[FlowLock] Fetch attempt ${i + 1} failed:`, err.message);
-      if (i < retries - 1) await new Promise(r => setTimeout(r, delayMs));
-      else throw err;
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+      } else {
+        throw err;
+      }
     }
   }
 }
@@ -28,13 +47,15 @@ async function isUserConnected() {
   return !!data.extensionConnected;
 }
 
-// ── On install: create sync alarm ─────────────────────────────────────────
+// ── On install ────────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create("syncVault", { periodInMinutes: 1 });
+  chrome.alarms.clear("syncVault", () => {
+    chrome.alarms.create("syncVault", { periodInMinutes: 1 });
+  });
   console.log("[FlowLock] Installed. Waiting for user to connect.");
 });
 
-// ── On startup: sync only if already connected ────────────────────────────
+// ── On startup ────────────────────────────────────────────────────────────
 chrome.runtime.onStartup.addListener(async () => {
   if (await isUserConnected()) {
     grabTokenAndSync();
@@ -43,7 +64,7 @@ chrome.runtime.onStartup.addListener(async () => {
   }
 });
 
-// ── Alarm: periodic sync ──────────────────────────────────────────────────
+// ── Alarm ─────────────────────────────────────────────────────────────────
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "syncVault") {
     if (await isUserConnected()) {
@@ -54,56 +75,61 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-// ── Grab token from open FlowLock tab, then sync ──────────────────────────
+// ── Grab token from FlowLock tab ──────────────────────────────────────────
 async function grabTokenAndSync() {
   console.log("[FlowLock] grabTokenAndSync started");
+  startKeepAlive();
 
-  const tabs = await chrome.tabs.query({ url: FLOWLOCK_URL + "/*" });
-
-  if (tabs.length === 0) {
-    console.log("[FlowLock] No FlowLock tab open — using stored token");
-    await syncVaultAndBlock();
-    return;
-  }
-
-  const tab = tabs[0];
   try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => {
-        const authKey = Object.keys(localStorage).find(
-          k => k.startsWith('sb-') && k.endsWith('-auth-token')
-        );
-        if (!authKey) return null;
-        try {
-          const parsed = JSON.parse(localStorage.getItem(authKey));
-          const session = parsed?.access_token ? parsed : parsed?.currentSession ?? null;
-          if (!session?.access_token) return null;
-          return {
-            access_token: session.access_token,
-            refresh_token: session.refresh_token,
-            user_id: session.user?.id
-          };
-        } catch (e) { return null; }
-      }
-    });
+    const tabs = await chrome.tabs.query({ url: FLOWLOCK_URL + "/*" });
 
-    const result = results?.[0]?.result;
-    if (result?.access_token) {
-      await chrome.storage.local.set({
-        'sb-access-token': result.access_token,
-        'sb-refresh-token': result.refresh_token,
-        'sb-user-id': result.user_id
-      });
-      console.log("[FlowLock] Token refreshed from tab");
+    if (tabs.length === 0) {
+      console.log("[FlowLock] No FlowLock tab open — using stored token");
       await syncVaultAndBlock();
-    } else {
-      console.log("[FlowLock] No token found in tab — disconnecting");
-      await disconnectAndClear();
+      return;
     }
-  } catch (err) {
-    console.error("[FlowLock] Tab script injection failed:", err);
-    await syncVaultAndBlock();
+
+    const tab = tabs[0];
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const authKey = Object.keys(localStorage).find(
+            k => k.startsWith('sb-') && k.endsWith('-auth-token')
+          );
+          if (!authKey) return null;
+          try {
+            const parsed = JSON.parse(localStorage.getItem(authKey));
+            const session = parsed?.access_token ? parsed : parsed?.currentSession ?? null;
+            if (!session?.access_token) return null;
+            return {
+              access_token: session.access_token,
+              refresh_token: session.refresh_token,
+              user_id: session.user?.id
+            };
+          } catch (e) { return null; }
+        }
+      });
+
+      const result = results?.[0]?.result;
+      if (result?.access_token) {
+        await chrome.storage.local.set({
+          'sb-access-token': result.access_token,
+          'sb-refresh-token': result.refresh_token,
+          'sb-user-id': result.user_id
+        });
+        console.log("[FlowLock] Token refreshed from tab");
+        await syncVaultAndBlock();
+      } else {
+        console.log("[FlowLock] No token found in tab — disconnecting");
+        await disconnectAndClear();
+      }
+    } catch (err) {
+      console.error("[FlowLock] Tab script injection failed:", err);
+      await syncVaultAndBlock();
+    }
+  } finally {
+    stopKeepAlive();
   }
 }
 
@@ -200,9 +226,7 @@ async function disconnectAndClear() {
   console.log("[FlowLock] Disconnected — all rules cleared");
 }
 
-// ── Self-heal: close ghost rows directly from the extension ───────────────
-// Called whenever we find orphaned rows — fixes them at the source
-// so the next sync immediately sees no active session.
+// ── Close ghost rows directly from extension ──────────────────────────────
 async function closeGhostSessions(token, ghostIds) {
   if (!ghostIds || ghostIds.length === 0) return;
   try {
@@ -226,35 +250,49 @@ async function closeGhostSessions(token, ghostIds) {
       console.warn("[FlowLock] Failed to close ghost sessions:", res.status);
     }
   } catch (err) {
-    console.warn("[FlowLock] closeGhostSessions error:", err);
+    console.warn("[FlowLock] closeGhostSessions error:", err.message);
   }
 }
 
-// ── Core sync: check session → fetch vault → apply rules ──────────────────
+// ── Core sync ─────────────────────────────────────────────────────────────
 async function syncVaultAndBlock() {
   console.log("[FlowLock] Syncing...");
-
-  if (!(await isUserConnected())) {
-    console.log("[FlowLock] Not connected — aborting sync");
-    await clearBlockingRules();
-    return;
-  }
-
-  const data = await chrome.storage.local.get(['sb-access-token', 'sb-user-id']);
-  const token = data['sb-access-token'];
-
-  if (!token) {
-    console.log("[FlowLock] No token — clearing rules");
-    await clearBlockingRules();
-    return;
-  }
+  startKeepAlive();
 
   try {
-    // Fetch all rows with ended_at = null, including started_at for age check
-    const sessionRes = await fetchWithRetry(
-      `${SUPABASE_URL}/rest/v1/study_sessions?ended_at=is.null&select=id,started_at`,
-      { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
-    );
+    if (!(await isUserConnected())) {
+      console.log("[FlowLock] Not connected — aborting sync");
+      await clearBlockingRules();
+      return;
+    }
+
+    const data = await chrome.storage.local.get(['sb-access-token', 'sb-user-id']);
+    const token = data['sb-access-token'];
+
+    if (!token) {
+      console.log("[FlowLock] No token — clearing rules");
+      await clearBlockingRules();
+      return;
+    }
+
+    // ── Step 1: Check for active sessions ───────────────────────────────
+    let sessionRes;
+    try {
+      sessionRes = await fetchWithRetry(
+        `${SUPABASE_URL}/rest/v1/study_sessions?ended_at=is.null&select=id,started_at`,
+        {
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    } catch (fetchErr) {
+      console.error("[FlowLock] Network error fetching sessions — clearing rules:", fetchErr.message);
+      await clearBlockingRules();
+      return;
+    }
 
     if (!sessionRes.ok) {
       console.warn("[FlowLock] Session fetch failed:", sessionRes.status);
@@ -274,26 +312,14 @@ async function syncVaultAndBlock() {
     }
 
     const now = Date.now();
+    const realSessions = sessions.filter(s => (now - new Date(s.started_at).getTime()) < MAX_SESSION_AGE_MS);
+    const ghostSessions = sessions.filter(s => (now - new Date(s.started_at).getTime()) >= MAX_SESSION_AGE_MS);
 
-    // ✅ Separate real active sessions from ghost rows
-    // A ghost row is one that has been open longer than MAX_SESSION_AGE_MS
-    const realSessions = sessions.filter(s => {
-      const age = now - new Date(s.started_at).getTime();
-      return age < MAX_SESSION_AGE_MS;
-    });
-
-    const ghostSessions = sessions.filter(s => {
-      const age = now - new Date(s.started_at).getTime();
-      return age >= MAX_SESSION_AGE_MS;
-    });
-
-    // ✅ Self-heal: close ghost rows immediately so they never cause problems again
     if (ghostSessions.length > 0) {
-      console.warn("[FlowLock] Found ghost sessions, closing them:", ghostSessions.map(s => s.id));
+      console.warn("[FlowLock] Closing ghost sessions:", ghostSessions.map(s => s.id));
       closeGhostSessions(token, ghostSessions.map(s => s.id));
     }
 
-    // ✅ Only block if there are REAL active sessions (not ghosts)
     if (realSessions.length === 0) {
       await clearBlockingRules();
       await chrome.storage.local.set({ sessionActive: false, blockedCount: 0 });
@@ -301,13 +327,27 @@ async function syncVaultAndBlock() {
       return;
     }
 
-    console.log("[FlowLock] Real active sessions:", realSessions.length);
+    console.log("[FlowLock] Active session confirmed:", realSessions.length);
     await chrome.storage.local.set({ sessionActive: true });
 
-    const vaultRes = await fetchWithRetry(
-      `${SUPABASE_URL}/rest/v1/distraction_vault?type=eq.website&select=identifier`,
-      { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
-    );
+    // ── Step 2: Fetch distraction vault ─────────────────────────────────
+    let vaultRes;
+    try {
+      vaultRes = await fetchWithRetry(
+        `${SUPABASE_URL}/rest/v1/distraction_vault?type=eq.website&select=identifier`,
+        {
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    } catch (fetchErr) {
+      console.error("[FlowLock] Network error fetching vault — clearing rules:", fetchErr.message);
+      await clearBlockingRules();
+      return;
+    }
 
     if (!vaultRes.ok) {
       console.warn("[FlowLock] Vault fetch failed:", vaultRes.status);
@@ -323,7 +363,9 @@ async function syncVaultAndBlock() {
     await chrome.storage.local.set({ blockedCount: domains.length });
 
   } catch (err) {
-    console.error("[FlowLock] Sync error:", err);
+    console.error("[FlowLock] Sync error:", err.message);
     await clearBlockingRules();
+  } finally {
+    stopKeepAlive();
   }
 }

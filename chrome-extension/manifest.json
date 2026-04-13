@@ -14,9 +14,7 @@
     "webNavigation"
   ],
   "host_permissions": [
-    "<all_urls>",
-    "https://cutgjwfkgkoynmxpsntr.supabase.co/*",
-    "https://flowlock-website-dev-vercel.vercel.app/*"
+    "<all_urls>"
   ],
   "externally_connectable": {
     "matches": [
@@ -25,7 +23,8 @@
     ]
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
@@ -42,5 +41,8 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://cutgjwfkgkoynmxpsntr.supabase.co https://flowlock-website-dev-vercel.vercel.app;"
+  }
 }
