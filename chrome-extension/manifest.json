@@ -1,31 +1,46 @@
 {
   "manifest_version": 3,
-  "name": "FlowLock",
+  "name": "FlowLock Vault",
   "version": "1.0",
+  "description": "Block distracting sites during your FlowLock focus sessions.",
   "permissions": [
     "storage",
     "tabs",
     "scripting",
+    "alarms",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback",
     "webNavigation"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "https://cutgjwfkgkoynmxpsntr.supabase.co/*",
+    "https://flowlock-website-dev-vercel.vercel.app/*"
   ],
+  "externally_connectable": {
+    "matches": [
+      "https://flowlock-website-dev-vercel.vercel.app/*",
+      "http://localhost:3000/*"
+    ]
+  },
   "background": {
     "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "FlowLock Vault"
   },
   "content_scripts": [
     {
       "matches": [
-        "<all_urls>"
+        "https://flowlock-website-dev-vercel.vercel.app/*",
+        "http://localhost:3000/*"
       ],
       "js": [
         "content.js"
       ],
       "run_at": "document_idle"
     }
-  ],
-  "action": {
-    "default_title": "FlowLock"
-  }
+  ]
 }
