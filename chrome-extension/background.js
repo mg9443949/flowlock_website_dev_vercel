@@ -5,6 +5,9 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const BLOCKED_URL = "https://flowlock-website-dev-vercel.vercel.app/blocked";
 const FLOWLOCK_URL = "https://flowlock-website-dev-vercel.vercel.app";
 
+// A session open for longer than this is definitely a ghost (crash/refresh/close)
+const MAX_SESSION_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 // ── Fetch with retry ───────────────────────────────────────────────────────
 async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
   for (let i = 0; i < retries; i++) {
@@ -107,7 +110,6 @@ async function grabTokenAndSync() {
 // ── Message listener ───────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
-  // Explicit connect from web app
   if (message.type === 'SET_AUTH') {
     chrome.storage.local.set({
       'sb-access-token': message.access_token,
@@ -119,13 +121,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Disconnect
   if (message.type === 'DISCONNECT') {
     disconnectAndClear().then(() => sendResponse({ ok: true }));
     return true;
   }
 
-  // Force sync (called after session ends or vault changes)
   if (message.type === 'FORCE_SYNC') {
     isUserConnected().then(connected => {
       if (connected) {
@@ -200,6 +200,36 @@ async function disconnectAndClear() {
   console.log("[FlowLock] Disconnected — all rules cleared");
 }
 
+// ── Self-heal: close ghost rows directly from the extension ───────────────
+// Called whenever we find orphaned rows — fixes them at the source
+// so the next sync immediately sees no active session.
+async function closeGhostSessions(token, ghostIds) {
+  if (!ghostIds || ghostIds.length === 0) return;
+  try {
+    const ids = ghostIds.join(',');
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/study_sessions?id=in.(${ids})`,
+      {
+        method: 'PATCH',
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify({ ended_at: new Date().toISOString() })
+      }
+    );
+    if (res.ok) {
+      console.log("[FlowLock] Ghost sessions closed:", ghostIds);
+    } else {
+      console.warn("[FlowLock] Failed to close ghost sessions:", res.status);
+    }
+  } catch (err) {
+    console.warn("[FlowLock] closeGhostSessions error:", err);
+  }
+}
+
 // ── Core sync: check session → fetch vault → apply rules ──────────────────
 async function syncVaultAndBlock() {
   console.log("[FlowLock] Syncing...");
@@ -220,9 +250,9 @@ async function syncVaultAndBlock() {
   }
 
   try {
-    // Check for active session (ended_at = null means session is ongoing)
+    // Fetch all rows with ended_at = null, including started_at for age check
     const sessionRes = await fetchWithRetry(
-      `${SUPABASE_URL}/rest/v1/study_sessions?ended_at=is.null&select=id`,
+      `${SUPABASE_URL}/rest/v1/study_sessions?ended_at=is.null&select=id,started_at`,
       { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` } }
     );
 
@@ -234,17 +264,44 @@ async function syncVaultAndBlock() {
     }
 
     const sessions = await sessionRes.json();
-    console.log("[FlowLock] Active sessions found:", sessions.length);
+    console.log("[FlowLock] Null ended_at rows found:", sessions.length);
 
     if (!sessions || sessions.length === 0) {
-      // No active session — unblock everything
       await clearBlockingRules();
       await chrome.storage.local.set({ sessionActive: false, blockedCount: 0 });
       console.log("[FlowLock] No active session — blocking disabled");
       return;
     }
 
-    // Active session exists — fetch vault and apply rules
+    const now = Date.now();
+
+    // ✅ Separate real active sessions from ghost rows
+    // A ghost row is one that has been open longer than MAX_SESSION_AGE_MS
+    const realSessions = sessions.filter(s => {
+      const age = now - new Date(s.started_at).getTime();
+      return age < MAX_SESSION_AGE_MS;
+    });
+
+    const ghostSessions = sessions.filter(s => {
+      const age = now - new Date(s.started_at).getTime();
+      return age >= MAX_SESSION_AGE_MS;
+    });
+
+    // ✅ Self-heal: close ghost rows immediately so they never cause problems again
+    if (ghostSessions.length > 0) {
+      console.warn("[FlowLock] Found ghost sessions, closing them:", ghostSessions.map(s => s.id));
+      closeGhostSessions(token, ghostSessions.map(s => s.id));
+    }
+
+    // ✅ Only block if there are REAL active sessions (not ghosts)
+    if (realSessions.length === 0) {
+      await clearBlockingRules();
+      await chrome.storage.local.set({ sessionActive: false, blockedCount: 0 });
+      console.log("[FlowLock] No real active session — blocking disabled");
+      return;
+    }
+
+    console.log("[FlowLock] Real active sessions:", realSessions.length);
     await chrome.storage.local.set({ sessionActive: true });
 
     const vaultRes = await fetchWithRetry(
@@ -267,7 +324,6 @@ async function syncVaultAndBlock() {
 
   } catch (err) {
     console.error("[FlowLock] Sync error:", err);
-    // On network error, clear rules — better to unblock temporarily than phantom-block
     await clearBlockingRules();
   }
 }
