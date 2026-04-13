@@ -8,23 +8,23 @@ import type { User } from "@supabase/supabase-js"
 export type UserRole = "student" | "admin"
 
 export interface AuthUser {
-    id: string
-    name: string
-    email: string
-    role: UserRole
-    isSpotifyLinked: boolean
+  id: string
+  name: string
+  email: string
+  role: UserRole
+  isSpotifyLinked: boolean
 }
 
 interface AuthContextType {
-    user: AuthUser | null
-    isAuthenticated: boolean
-    isLoading: boolean
-    login: (email: string, password: string) => Promise<{ error?: string }>
-    demoLogin: () => void
-    signup: (email: string, password: string, name: string) => Promise<{ error?: string }>
-    logout: () => void
-    updateProfile: (userData: Partial<AuthUser>) => void
-    setSpotifyEnabled: (enabled: boolean) => void
+  user: AuthUser | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  login: (email: string, password: string) => Promise<{ error?: string }>
+  demoLogin: () => void
+  signup: (email: string, password: string, name: string) => Promise<{ error?: string }>
+  logout: () => void
+  updateProfile: (userData: Partial<AuthUser>) => void
+  setSpotifyEnabled: (enabled: boolean) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -32,161 +32,176 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const SPOTIFY_STORAGE_KEY = "flowlock_spotify_enabled"
 
 function getSpotifyEnabled(): boolean {
-    if (typeof window === "undefined") return false
-    return localStorage.getItem(SPOTIFY_STORAGE_KEY) === "true"
+  if (typeof window === "undefined") return false
+  return localStorage.getItem(SPOTIFY_STORAGE_KEY) === "true"
 }
 
 async function fetchProfile(supaUser: User): Promise<AuthUser | null> {
-    try {
-      const profilePromise = supabase
-        .from('profiles')
-        .select('full_name, email, role')
-        .eq('id', supaUser.id)
-        .single()
+  try {
+    const profilePromise = supabase
+      .from('profiles')
+      .select('full_name, email, role')
+      .eq('id', supaUser.id)
+      .single()
 
-      // Race against a 3 second timeout
-      const timeoutPromise = new Promise<null>((resolve) => 
-        setTimeout(() => resolve(null), 3000)
-      )
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), 3000)
+    )
 
-      const result = await Promise.race([profilePromise, timeoutPromise])
-      
-      // If timed out, result is null — use fallback
-      if (!result || !('data' in result)) {
-        console.warn('[Auth] fetchProfile timed out, using fallback')
-        return {
-          id: supaUser.id,
-          name: supaUser.user_metadata?.full_name || 
-                supaUser.email?.split('@')[0] || 'User',
-          email: supaUser.email || '',
-          role: 'student',
-          isSpotifyLinked: getSpotifyEnabled()
-        }
-      }
+    const result = await Promise.race([profilePromise, timeoutPromise])
 
-      const { data, error } = result
-      if (!error && data) {
-        return {
-          id: supaUser.id,
-          name: data.full_name || supaUser.user_metadata?.full_name || '',
-          email: data.email,
-          role: data.role as 'student' | 'admin',
-          isSpotifyLinked: getSpotifyEnabled()
-        }
-      }
-
-      // Query failed — use auth metadata fallback
+    if (!result || !('data' in result)) {
+      console.warn('[Auth] fetchProfile timed out, using fallback')
       return {
         id: supaUser.id,
-        name: supaUser.user_metadata?.full_name || 
-              supaUser.email?.split('@')[0] || 'User',
-        email: supaUser.email || '',
-        role: 'student',
-        isSpotifyLinked: getSpotifyEnabled()
-      }
-
-    } catch (err) {
-      console.error('[Auth] fetchProfile crashed:', err)
-      return {
-        id: supaUser.id,
-        name: supaUser.email?.split('@')[0] || 'User',
+        name: supaUser.user_metadata?.full_name ||
+          supaUser.email?.split('@')[0] || 'User',
         email: supaUser.email || '',
         role: 'student',
         isSpotifyLinked: getSpotifyEnabled()
       }
     }
+
+    const { data, error } = result
+    if (!error && data) {
+      return {
+        id: supaUser.id,
+        name: data.full_name || supaUser.user_metadata?.full_name || '',
+        email: data.email,
+        role: data.role as 'student' | 'admin',
+        isSpotifyLinked: getSpotifyEnabled()
+      }
+    }
+
+    return {
+      id: supaUser.id,
+      name: supaUser.user_metadata?.full_name ||
+        supaUser.email?.split('@')[0] || 'User',
+      email: supaUser.email || '',
+      role: 'student',
+      isSpotifyLinked: getSpotifyEnabled()
+    }
+
+  } catch (err) {
+    console.error('[Auth] fetchProfile crashed:', err)
+    return {
+      id: supaUser.id,
+      name: supaUser.email?.split('@')[0] || 'User',
+      email: supaUser.email || '',
+      role: 'student',
+      isSpotifyLinked: getSpotifyEnabled()
+    }
+  }
+}
+
+// ── Close any orphaned sessions left open by crashes/refreshes ─────────────
+// Runs once on app load after the user is confirmed authenticated.
+// Prevents the extension from seeing ended_at=null rows and blocking
+// sites permanently even when no session is actually running.
+async function closeOrphanedSessions(userId: string) {
+  try {
+    const { error } = await supabase
+      .from('study_sessions')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .is('ended_at', null)
+
+    if (error) {
+      console.warn('[Auth] Failed to close orphaned sessions:', error.message)
+    } else {
+      console.log('[Auth] Orphaned sessions closed')
+    }
+  } catch (err) {
+    console.warn('[Auth] closeOrphanedSessions error:', err)
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<AuthUser | null>(null)
-    const [isAuthenticated, setIsAuthenticated] = useState(false)
-    const [isLoading, setIsLoading] = useState(true)
-    const resolvingProfile = useRef(false)
-    const router = useRouter()
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const resolvingProfile = useRef(false)
+  const router = useRouter()
 
-    useEffect(() => {
-        let mounted = true
-        // Safety net: never stay in loading state longer than 8 seconds
-        const timeout = setTimeout(() => {
-            if (mounted) setIsLoading(false)
-        }, 8000)
+  useEffect(() => {
+    let mounted = true
+    const timeout = setTimeout(() => {
+      if (mounted) setIsLoading(false)
+    }, 8000)
 
-        // Guard: if env vars are missing, fail fast
-        if (!supabase) {
-            console.error("[Auth] Supabase client is null — NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is missing. Check your .env.local file.")
-            clearTimeout(timeout)
-            if (mounted) setIsLoading(false)
-            return
-        }
+    if (!supabase) {
+      console.error("[Auth] Supabase client is null — check your .env.local file.")
+      clearTimeout(timeout)
+      if (mounted) setIsLoading(false)
+      return
+    }
 
-        // Check existing session on mount
-        const initSession = async () => {
-          try {
-            const { data: { session } } = await supabase.auth.getSession()
-            
-            if (session?.user && mounted) {
-              resolvingProfile.current = true
-              const profile = await fetchProfile(session.user)
-              resolvingProfile.current = false
-              
-              if (mounted) {
-                if (profile) {
-                  setUser(profile)
-                  setIsAuthenticated(true)
-                } else {
-                  // fetchProfile failed but session is valid
-                  // Set a minimal user to prevent redirect
-                  setUser({
-                    id: session.user.id,
-                    name: session.user.email?.split('@')[0] || 'User',
-                    email: session.user.email || '',
-                    role: 'student',
-                    isSpotifyLinked: false
-                  })
-                  setIsAuthenticated(true)
-                }
-              }
+    const initSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if (session?.user && mounted) {
+          resolvingProfile.current = true
+          const profile = await fetchProfile(session.user)
+          resolvingProfile.current = false
+
+          if (mounted) {
+            if (profile) {
+              setUser(profile)
+              setIsAuthenticated(true)
+            } else {
+              setUser({
+                id: session.user.id,
+                name: session.user.email?.split('@')[0] || 'User',
+                email: session.user.email || '',
+                role: 'student',
+                isSpotifyLinked: false
+              })
+              setIsAuthenticated(true)
             }
-          } catch (error) {
-            console.error('Failed to initialize session:', error)
-          } finally {
-            // Always runs last — isAuthenticated already set above
-            clearTimeout(timeout)
-            if (mounted) setIsLoading(false)
+
+            // ✅ Close any orphaned study sessions from previous crashes/refreshes.
+            // Runs silently in background — does not block rendering.
+            closeOrphanedSessions(session.user.id)
           }
         }
+      } catch (error) {
+        console.error('Failed to initialize session:', error)
+      } finally {
+        clearTimeout(timeout)
+        if (mounted) setIsLoading(false)
+      }
+    }
 
-        initSession()
+    initSession()
 
-        // Listen for auth state changes (login, logout, token refresh)
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-          async (event, session) => {
-            if (event === 'SIGNED_IN' && session?.user && mounted) {
-              // If initSession is already resolving the profile, skip —
-              // avoid double fetchProfile calls racing each other
-              if (resolvingProfile.current) return
-              
-              const profile = await fetchProfile(session.user)
-              if (profile && mounted) {
-                setUser(profile)
-                setIsAuthenticated(true)
-                // If isLoading is still true when this fires, 
-                // make sure we resolve it
-                setIsLoading(false)
-              }
-            } else if (event === 'SIGNED_OUT' && mounted) {
-              setUser(null)
-              setIsAuthenticated(false)
-            }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user && mounted) {
+          if (resolvingProfile.current) return
+
+          const profile = await fetchProfile(session.user)
+          if (profile && mounted) {
+            setUser(profile)
+            setIsAuthenticated(true)
+            setIsLoading(false)
+
+            // ✅ Also clean up on re-login (e.g. tab was closed mid-session)
+            closeOrphanedSessions(session.user.id)
           }
-        )
-
-        return () => {
-            mounted = false
-            clearTimeout(timeout)
-            subscription.unsubscribe()
+        } else if (event === 'SIGNED_OUT' && mounted) {
+          setUser(null)
+          setIsAuthenticated(false)
         }
-    }, [])
+      }
+    )
+
+    return () => {
+      mounted = false
+      clearTimeout(timeout)
+      subscription.unsubscribe()
+    }
+  }, [])
 
   const login = async (
     email: string,
@@ -210,11 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAuthenticated(true)
       }
 
-      // SET THIS FLAG before navigating
-      // Tells the dashboard guard: "login just happened, 
-      // wait for initSession to confirm before redirecting"
       sessionStorage.setItem('flowlock_just_logged_in', 'true')
-      
       window.location.replace('/dashboard')
       return {}
 
@@ -223,99 +234,93 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-    const demoLogin = () => {
-        const demoUser: AuthUser = {
-            id: "demo-id-1234",
-            name: "Demo Student",
-            email: "demo@flowlock.app",
-            role: "student",
-            isSpotifyLinked: getSpotifyEnabled(),
+  const demoLogin = () => {
+    const demoUser: AuthUser = {
+      id: "demo-id-1234",
+      name: "Demo Student",
+      email: "demo@flowlock.app",
+      role: "student",
+      isSpotifyLinked: getSpotifyEnabled(),
+    }
+    setUser(demoUser)
+    setIsAuthenticated(true)
+    router.push("/dashboard")
+  }
+
+  const signup = async (email: string, password: string, name: string): Promise<{ error?: string }> => {
+    if (!supabase) {
+      return { error: "Missing database configuration. Please add Supabase environment variables to Vercel and redeploy." }
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: name, role: "student" },
+          emailRedirectTo: `${window.location.origin}/dashboard`,
+        },
+      })
+
+      if (error) return { error: error.message }
+
+      if (data.session?.user) {
+        const profile = await fetchProfile(data.session.user)
+        if (profile) {
+          setUser(profile)
+          setIsAuthenticated(true)
         }
-        setUser(demoUser)
-        setIsAuthenticated(true)
         router.push("/dashboard")
+        return {}
+      } else {
+        return { error: "Please check your email to verify your account before logging in." }
+      }
+    } catch (err: any) {
+      return { error: err.message || "Network connection failed. Please disable your adblocker or firewall." }
     }
+  }
 
-    const signup = async (email: string, password: string, name: string): Promise<{ error?: string }> => {
-        if (!supabase) {
-            return { error: "Missing database configuration. Please add Supabase environment variables to Vercel and redeploy." }
-        }
+  const logout = () => {
+    setUser(null)
+    setIsAuthenticated(false)
+    router.push("/")
 
-        try {
-            const { data, error } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: { full_name: name, role: "student" },
-                    emailRedirectTo: `${window.location.origin}/dashboard`,
-                },
-            })
-
-            if (error) return { error: error.message }
-
-            if (data.session?.user) {
-                const profile = await fetchProfile(data.session.user)
-                if (profile) {
-                    setUser(profile)
-                    setIsAuthenticated(true)
-                }
-                router.push("/dashboard")
-                return {}
-            } else {
-                // If there's no session immediately, Supabase is waiting for email confirmation
-                return { error: "Please check your email to verify your account before logging in." }
-            }
-        } catch (err: any) {
-            return { error: err.message || "Network connection failed. Please disable your adblocker or firewall." }
-        }
+    if (supabase) {
+      supabase.auth.signOut().catch(error => {
+        console.error("Logout network error:", error)
+      })
     }
+  }
 
-    const logout = () => {
-        // Optimistic, instant local logout guarantees the UI functions offline
-        setUser(null)
-        setIsAuthenticated(false)
-        router.push("/")
-        
-        // Background network logout (fire and forget)
-        if (supabase) {
-            supabase.auth.signOut().catch(error => {
-                console.error("Logout network error (e.g. Supabase offline or blocked):", error)
-            })
-        }
+  const updateProfile = async (userData: Partial<AuthUser>) => {
+    if (!user) return
+    const updatedUser = { ...user, ...userData }
+    setUser(updatedUser)
+
+    await supabase.from("profiles").update({
+      full_name: updatedUser.name,
+      role: updatedUser.role,
+    }).eq("id", user.id)
+  }
+
+  const setSpotifyEnabled = (enabled: boolean) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(SPOTIFY_STORAGE_KEY, String(enabled))
     }
+    setUser((prev) => prev ? { ...prev, isSpotifyLinked: enabled } : prev)
+  }
 
-    const updateProfile = async (userData: Partial<AuthUser>) => {
-        if (!user) return
-        const updatedUser = { ...user, ...userData }
-        setUser(updatedUser)
-
-        // Persist to Supabase
-        await supabase.from("profiles").update({
-            full_name: updatedUser.name,
-            role: updatedUser.role,
-        }).eq("id", user.id)
-    }
-
-    const setSpotifyEnabled = (enabled: boolean) => {
-        if (typeof window !== "undefined") {
-            localStorage.setItem(SPOTIFY_STORAGE_KEY, String(enabled))
-        }
-        setUser((prev) => prev ? { ...prev, isSpotifyLinked: enabled } : prev)
-    }
-
-    // Don't block rendering — let public pages (like sign-in) through immediately.
-    // The dashboard layout handles auth-gating with isLoading internally.
-    return (
-        <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, demoLogin, signup, logout, updateProfile, setSpotifyEnabled }}>
-            {children}
-        </AuthContext.Provider>
-    )
+  return (
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, demoLogin, signup, logout, updateProfile, setSpotifyEnabled }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {
-    const context = useContext(AuthContext)
-    if (context === undefined) {
-        throw new Error("useAuth must be used within an AuthProvider")
-    }
-    return context
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider")
+  }
+  return context
 }
