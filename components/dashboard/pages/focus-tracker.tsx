@@ -91,8 +91,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
     const hasDownloadedRef = useRef(false)
     const targetDurationRef = useRef<number | null>(targetDuration)
     const lastDistractionCountRef = useRef(0)
-
-    // ✅ FIX 1 — Track active session ID for update-on-stop
     const activeSessionIdRef = useRef<string | null>(null)
 
     useEffect(() => { targetDurationRef.current = targetDuration }, [targetDuration])
@@ -325,7 +323,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         } catch (e: any) { updateStatusUI("Error: " + e.message, "warning") }
     }
 
-    // ✅ FIX 1 — Insert session row at START with ended_at = NULL
     const handleStart = useCallback(async () => {
         if (isRunningRef.current) return
         isRunningRef.current = true
@@ -378,7 +375,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
             startTimeRef.current = Date.now()
             updateStatusUI("✓ Focused", "focused")
 
-            // ✅ Insert active session row so extension detects it immediately
+            // Insert active session row so extension detects it immediately
             if (supabase && user?.id) {
                 try {
                     const { data: newSession, error: insertError } = await supabase
@@ -470,7 +467,6 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         }
     }, [setupCamera, detectLoop, updateStatusUI])
 
-    // ✅ FIX 2 — UPDATE existing row at STOP, dispatch session_ended for extension
     const handleStop = useCallback(() => {
         isRunningRef.current = false
         if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current)
@@ -524,8 +520,9 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         setPhase("results")
         updateStatusUI("Session Complete", "neutral")
 
-        // ✅ FIX 2 — Notify extension immediately that session ended
-        window.dispatchEvent(new CustomEvent('flowlock:session_ended'))
+        // ✅ DO NOT dispatch session_ended here — it must fire AFTER
+        // ended_at is written to Supabase, otherwise the extension queries
+        // the DB and still sees ended_at = null, keeping sites blocked.
 
         try { stopNoise() } catch (e) { console.warn('stopNoise failed:', e) }
         try { stopFocusSession() } catch (e) { console.warn('stopFocusSession failed:', e) }
@@ -547,7 +544,7 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
         if (onSessionComplete) { try { onSessionComplete(computedResult) } catch (e) { } }
         try { setLastFocusSession(computedResult) } catch (e) { }
 
-        // ✅ FIX 2 — UPDATE existing row instead of INSERT
+        // ✅ Save session to Supabase, then dispatch session_ended AFTER update completes
         const MAX_SESSION_MS = 24 * 60 * 60 * 1000
         if (supabase && user?.id && startTimeRef.current > 0 && totalDuration > 0 && totalDuration < MAX_SESSION_MS) {
             const saveSession = async () => {
@@ -588,13 +585,27 @@ export function FocusTracker({ onSessionComplete, visible = true }: FocusTracker
                         console.log('[SAVE] Session inserted (fallback)')
                     }
 
+                    // ✅ Dispatch AFTER ended_at is confirmed written to Supabase.
+                    // Extension queries study_sessions?ended_at=is.null — if we fire
+                    // this event before the update, the row still has ended_at = null
+                    // and the extension thinks the session is still active.
+                    window.dispatchEvent(new CustomEvent('flowlock:session_ended'))
+                    console.log('[FlowLock] session_ended dispatched after DB update')
+
                     await refetch()
                 } catch (err) {
                     console.error('[SAVE] Save failed:', err)
                     toast.error("Sync failed — data saved locally", { duration: 3000 })
+
+                    // Even on error, unblock sites so user isn't stuck
+                    window.dispatchEvent(new CustomEvent('flowlock:session_ended'))
                 }
             }
             saveSession()
+        } else {
+            // Session too short, no user, or supabase unavailable —
+            // still fire the event so extension clears blocking rules
+            window.dispatchEvent(new CustomEvent('flowlock:session_ended'))
         }
 
         if (typeof localStorage !== "undefined" && localStorage.getItem("pref_motivational_messages") === "true") {
