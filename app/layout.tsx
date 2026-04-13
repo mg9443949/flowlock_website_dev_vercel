@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/components/providers/auth-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { StudentChatbot } from '@/components/StudentChatbot'
+import FlowLockProvider from './flowlockprovider' // ✅ ADD THIS
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -13,7 +14,6 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   description: 'Created with Next.js',
   generator: 'next.app',
-  // icons removed to disable the app logo/favicon
 }
 
 export default function RootLayout({
@@ -24,6 +24,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased`}>
+
+        {/* ✅ ADD FLOWLOCK HERE */}
+        <FlowLockProvider />
+
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
@@ -34,6 +38,7 @@ export default function RootLayout({
           <Toaster />
           <StudentChatbot />
         </ThemeProvider>
+
         <Analytics />
       </body>
     </html>
