@@ -11,13 +11,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       'sb-access-token',
       'sb-user-id',
       'sessionActive',
-      'blockedCount'
+      'blockedCount',
+      'extensionConnected'
     ]);
 
     const token = data['sb-access-token'];
     const userId = data['sb-user-id'];
+    const connected = data['extensionConnected'];
 
-    if (token && userId) {
+    if (token && userId && connected) {
       statusContainer.textContent = "Connected to FlowLock";
       statusContainer.style.color = "#22c55e";
 
@@ -52,20 +54,75 @@ document.addEventListener("DOMContentLoaded", async () => {
       changes['sb-access-token'] ||
       changes['sb-user-id'] ||
       changes['sessionActive'] ||
-      changes['blockedCount']
+      changes['blockedCount'] ||
+      changes['extensionConnected']
     )) {
       updateUI();
     }
   });
 
-  // Connect button → open FlowLock dashboard for login
-  connectBtn.addEventListener("click", () => {
-    chrome.tabs.create({
-      url: "https://flowlock-website-dev-vercel.vercel.app/auth/extension-callback"
-    });
+  // ── Connect button ────────────────────────────────────────────────────────
+  connectBtn.addEventListener("click", async () => {
+    connectBtn.textContent = "Connecting...";
+    connectBtn.disabled = true;
+
+    const FLOWLOCK_URL = "https://flowlock-website-dev-vercel.vercel.app";
+
+    // Check if a FlowLock tab is already open
+    const existingTabs = await chrome.tabs.query({ url: FLOWLOCK_URL + "/*" });
+
+    let tab;
+    if (existingTabs.length > 0) {
+      // Reuse existing tab and bring it to focus
+      tab = existingTabs[0];
+      await chrome.tabs.update(tab.id, { active: true });
+      await chrome.windows.update(tab.windowId, { focused: true });
+    } else {
+      // Open a new FlowLock tab (dashboard, not a non-existent callback page)
+      tab = await chrome.tabs.create({ url: FLOWLOCK_URL + "/dashboard" });
+    }
+
+    // Wait for the tab to finish loading, then dispatch the connect event
+    // content.js is already injected on FlowLock pages and listening for this event
+    function onTabUpdated(tabId, changeInfo) {
+      if (tabId !== tab.id || changeInfo.status !== 'complete') return;
+
+      chrome.tabs.onUpdated.removeListener(onTabUpdated);
+
+      // Dispatch the custom event into the page — content.js picks this up
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          window.dispatchEvent(new Event('flowlock:connect_extension'));
+        }
+      }).then(() => {
+        console.log('[FlowLock Popup] flowlock:connect_extension dispatched');
+      }).catch(err => {
+        console.error('[FlowLock Popup] Failed to dispatch event:', err);
+      });
+    }
+
+    // If the tab is already loaded (reused tab), fire immediately
+    if (existingTabs.length > 0) {
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          window.dispatchEvent(new Event('flowlock:connect_extension'));
+        }
+      }).catch(err => console.error('[FlowLock Popup] Script injection failed:', err));
+    } else {
+      // New tab — wait for it to load first
+      chrome.tabs.onUpdated.addListener(onTabUpdated);
+    }
+
+    // Reset button after 3 seconds (UI will auto-update via storage listener when connected)
+    setTimeout(() => {
+      connectBtn.textContent = "Connect with FlowLock";
+      connectBtn.disabled = false;
+    }, 3000);
   });
 
-  // Disconnect: send DISCONNECT to background which atomically wipes token + clears rules
+  // ── Disconnect button ─────────────────────────────────────────────────────
   logoutBtn.addEventListener("click", async () => {
     logoutBtn.textContent = "Disconnecting...";
     logoutBtn.disabled = true;
@@ -79,7 +136,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         'sb-refresh-token',
         'sb-user-id',
         'sessionActive',
-        'blockedCount'
+        'blockedCount',
+        'extensionConnected'
       ]);
     }
 
