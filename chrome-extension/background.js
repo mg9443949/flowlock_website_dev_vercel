@@ -20,19 +20,36 @@ async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
   }
 }
 
-// ── On install, set alarm + sync immediately ───────────────────────────────
+// ── Guard: only proceed if user explicitly connected the extension ──────────
+async function isUserConnected() {
+  const data = await chrome.storage.local.get('extensionConnected');
+  return !!data.extensionConnected;
+}
+
+// ── On install, set alarm ──────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("syncVault", { periodInMinutes: 1 });
-  grabTokenAndSync();
+  // Do NOT auto-sync on install — wait for user to connect
+  console.log('[FlowLock] Extension installed. Waiting for user to connect.');
 });
 
-// ── On browser startup, sync immediately ──────────────────────────────────
-chrome.runtime.onStartup.addListener(() => {
-  grabTokenAndSync();
+// ── On browser startup, sync only if already connected ────────────────────
+chrome.runtime.onStartup.addListener(async () => {
+  if (await isUserConnected()) {
+    grabTokenAndSync();
+  } else {
+    console.log('[FlowLock] Not connected on startup — skipping sync');
+  }
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "syncVault") grabTokenAndSync();
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "syncVault") {
+    if (await isUserConnected()) {
+      grabTokenAndSync();
+    } else {
+      console.log('[FlowLock] Alarm fired but not connected — skipping');
+    }
+  }
 });
 
 // ── Main: inject script into FlowLock tab to grab token ───────────────────
@@ -99,7 +116,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.set({
       'sb-access-token': message.access_token,
       'sb-refresh-token': message.refresh_token,
-      'sb-user-id': message.user_id
+      'sb-user-id': message.user_id,
+      'extensionConnected': true  // ✅ Mark connected only on explicit SET_AUTH
     }, () => { syncVaultAndBlock(); });
     sendResponse({ ok: true });
     return true;
@@ -111,21 +129,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'FORCE_SYNC') {
-    syncVaultAndBlock().then(() => sendResponse({ ok: true }));
+    isUserConnected().then(connected => {
+      if (connected) {
+        syncVaultAndBlock().then(() => sendResponse({ ok: true }));
+      } else {
+        console.log('[FlowLock] FORCE_SYNC ignored — not connected');
+        sendResponse({ ok: false, reason: 'not_connected' });
+      }
+    });
     return true;
   }
 
   if (message.action === 'sync_now') {
-    grabTokenAndSync().then(() => sendResponse({ status: 'done' }));
+    isUserConnected().then(connected => {
+      if (connected) {
+        grabTokenAndSync().then(() => sendResponse({ status: 'done' }));
+      } else {
+        sendResponse({ status: 'not_connected' });
+      }
+    });
     return true;
   }
 });
 
 // ── Watch for tab updates on FlowLock domain ──────────────────────────────
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url?.startsWith(FLOWLOCK_URL)) {
-    console.log('[FlowLock] FlowLock tab loaded, grabbing token');
-    setTimeout(() => grabTokenAndSync(), 2000);
+    if (await isUserConnected()) {
+      console.log('[FlowLock] FlowLock tab loaded, grabbing token');
+      setTimeout(() => grabTokenAndSync(), 2000);
+    }
   }
 });
 
@@ -170,7 +203,8 @@ async function disconnectAndClear() {
     'sb-refresh-token',
     'sb-user-id',
     'sessionActive',
-    'blockedCount'
+    'blockedCount',
+    'extensionConnected'   // ✅ Clear connected flag on disconnect
   ]);
   await clearBlockingRules();
   console.log('[FlowLock] Disconnected and all rules cleared');
@@ -179,6 +213,14 @@ async function disconnectAndClear() {
 // ── Core sync ──────────────────────────────────────────────────────────────
 async function syncVaultAndBlock() {
   console.log('[FlowLock] Starting sync...');
+
+  // ✅ Guard: never block if user hasn't explicitly connected
+  if (!(await isUserConnected())) {
+    console.log('[FlowLock] Not connected — clearing rules and aborting sync');
+    await clearBlockingRules();
+    return;
+  }
+
   const data = await chrome.storage.local.get(['sb-access-token', 'sb-user-id']);
   const token = data['sb-access-token'];
 
@@ -237,8 +279,9 @@ async function syncVaultAndBlock() {
 
   } catch (err) {
     console.error('[FlowLock] Sync error:', err);
-    // Do NOT clear rules on network failure — keep existing rules active
-    // to avoid unblocking sites due to a transient connectivity issue
-    console.warn('[FlowLock] Keeping existing rules due to network error');
+    // ✅ On network error: clear rules to avoid phantom blocking
+    // Better to unblock temporarily than to block permanently due to a connectivity glitch
+    console.warn('[FlowLock] Clearing rules due to network error (safe default)');
+    await clearBlockingRules();
   }
 }
