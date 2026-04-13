@@ -1,25 +1,23 @@
-let currentSession = null;
+let ports = [];
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "AUTH_UPDATE") {
-    currentSession = message.payload;
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "flowlock-connection") return;
 
-    console.log("[FlowLock BG] Auth updated:", currentSession);
+  console.log("[FlowLock BG] Port connected");
 
-    sendResponse({ ok: true });
-  }
+  ports.push(port);
 
-  if (message.type === "DISCONNECT") {
-    currentSession = null;
-    console.log("[FlowLock BG] Disconnected");
+  port.onMessage.addListener((msg) => {
+    if (msg.type === "AUTH_UPDATE") {
+      console.log("[FlowLock BG] Auth received:", msg.payload);
 
-    sendResponse({ ok: true });
-  }
+      // 🔥 store globally
+      globalThis.flowlockSession = msg.payload;
+    }
+  });
 
-  return true;
-});
-
-// OPTIONAL: Debug helper
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("[FlowLock BG] Extension installed/reloaded");
+  port.onDisconnect.addListener(() => {
+    console.log("[FlowLock BG] Port disconnected");
+    ports = ports.filter((p) => p !== port);
+  });
 });

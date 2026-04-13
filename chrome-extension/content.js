@@ -1,48 +1,28 @@
 (function () {
-  function isExtensionValid() {
+  let port = null;
+
+  function connectPort() {
     try {
-      return typeof chrome !== 'undefined' && !!chrome.runtime?.id;
-    } catch {
-      return false;
-    }
-  }
+      port = chrome.runtime.connect({ name: "flowlock-connection" });
 
-  function safeStorageSet(data) {
-    if (!isExtensionValid()) {
-      console.warn('[FlowLock content] Extension context invalidated — skipping storage.set');
-      return false;
-    }
-    chrome.storage.local.set(data);
-    return true;
-  }
+      console.log("[FlowLock] Port connected");
 
-  function safeSendMessage(msg) {
-    if (!isExtensionValid()) {
-      console.warn('[FlowLock content] Extension context invalidated — skipping sendMessage');
-      return Promise.resolve({ ok: false, reason: 'context_invalidated' });
-    }
+      port.onDisconnect.addListener(() => {
+        console.warn("[FlowLock] Port disconnected → retrying...");
+        port = null;
 
-    try {
-      return chrome.runtime.sendMessage(msg).catch(() => {
-        return { ok: false, reason: 'send_failed' };
+        setTimeout(connectPort, 1000); // auto-reconnect
       });
-    } catch {
-      return Promise.resolve({ ok: false, reason: 'send_failed' });
-    }
-  }
 
-  function safeStorageGet(keys, callback) {
-    if (!isExtensionValid()) {
-      console.warn('[FlowLock content] Extension context invalidated — skipping storage.get');
-      callback({});
-      return;
+    } catch (err) {
+      console.error("[FlowLock] Port connection failed", err);
+      setTimeout(connectPort, 1000);
     }
-    chrome.storage.local.get(keys, callback);
   }
 
   function getSession() {
     const authKey = Object.keys(localStorage).find(
-      (k) => k.startsWith('sb-') && k.endsWith('-auth-token')
+      (k) => k.startsWith("sb-") && k.endsWith("-auth-token")
     );
 
     if (!authKey) return null;
@@ -56,106 +36,36 @@
     }
   }
 
-  function writeTokenForBackground(session) {
-    if (!session?.access_token) return false;
+  function sendAuth() {
+    if (!port) return;
 
-    return safeStorageSet({
-      'sb-access-token': session.access_token,
-      'sb-refresh-token': session.refresh_token,
-      'sb-user-id': session.user?.id,
+    const session = getSession();
+    if (!session?.access_token) return;
+
+    port.postMessage({
+      type: "AUTH_UPDATE",
+      payload: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        user_id: session.user?.id,
+      },
     });
   }
 
-  function trySync() {
-    const session = getSession();
-    if (session?.access_token) {
-      writeTokenForBackground(session);
-      return true;
-    }
-    return false;
-  }
+  // 🔥 Listen from frontend
+  window.addEventListener("flowlock:connect_extension", () => {
+    console.log("[FlowLock] Connect requested");
 
-  function forceSync() {
-    return safeSendMessage({ type: 'FORCE_SYNC' });
-  }
+    if (!port) connectPort();
 
-  async function connectExtension() {
-    const session = getSession();
-
-    if (!session?.access_token) {
-      window.dispatchEvent(
-        new CustomEvent('flowlock:connect_failed', {
-          detail: { reason: 'no_session' },
-        })
-      );
-      return;
-    }
-
-    if (!isExtensionValid()) {
-      window.dispatchEvent(
-        new CustomEvent('flowlock:connect_failed', {
-          detail: {
-            reason: 'context_invalidated',
-            recoverable: true,
-          },
-        })
-      );
-      return;
-    }
-
-    const stored = writeTokenForBackground(session);
-    if (!stored) {
-      window.dispatchEvent(
-        new CustomEvent('flowlock:connect_failed', {
-          detail: { reason: 'storage_failed' },
-        })
-      );
-      return;
-    }
-
-    safeStorageSet({ extensionConnected: true });
-    await forceSync();
-
-    window.dispatchEvent(
-      new CustomEvent('flowlock:connect_success', {
-        detail: { ok: true },
-      })
-    );
-  }
-
-  window.addEventListener('flowlock:connect_extension', connectExtension);
-
-  window.addEventListener('flowlock:disconnect_extension', () => {
-    safeSendMessage({ type: 'DISCONNECT' });
+    setTimeout(sendAuth, 500);
   });
 
-  window.addEventListener('flowlock:session_ended', forceSync);
-  window.addEventListener('flowlock:vault_changed', forceSync);
-
-  safeStorageGet('extensionConnected', (data) => {
-    if (!data.extensionConnected) return;
-
-    if (!trySync()) {
-      let attempts = 0;
-      const interval = setInterval(() => {
-        if (!isExtensionValid()) {
-          clearInterval(interval);
-          return;
-        }
-
-        attempts++;
-        if (trySync() || attempts >= 20) {
-          clearInterval(interval);
-        }
-      }, 500);
+  // 🔥 Auto detect login change
+  window.addEventListener("storage", (e) => {
+    if (e.key?.includes("auth-token")) {
+      sendAuth();
     }
   });
 
-  window.addEventListener('storage', (e) => {
-    if (e.key?.startsWith('sb-') && e.key?.endsWith('-auth-token')) {
-      safeStorageGet('extensionConnected', (data) => {
-        if (data.extensionConnected) trySync();
-      });
-    }
-  });
 })();
