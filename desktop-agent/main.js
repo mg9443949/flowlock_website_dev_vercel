@@ -5,6 +5,7 @@ const { fetchVaultItems, enforcVault } = require('./vault');
 
 const FLOWLOCK_URL = "http://localhost:3000"; // Can swap to production domain here
 
+let isBlocking = false;
 let tray = null;
 let pollInterval = null;
 
@@ -65,8 +66,21 @@ function updateTrayStatus(statusText) {
     const contextMenu = Menu.buildFromTemplate([
       { label: `Status: ${statusText.replace('FlowLock Agent — ', '')}`, enabled: false },
       { type: 'separator' },
-      { 
-        label: 'Sign Out', 
+      {
+        label: isBlocking ? 'Stop Blocking' : 'Start Blocking',
+        click: async () => {
+          isBlocking = !isBlocking;
+          if (isBlocking) {
+            const appsToBlock = await fetchVaultItems();
+            await enforcVault(appsToBlock);
+            updateTrayStatus(`FlowLock — Blocking ${appsToBlock.length} apps`);
+          } else {
+            updateTrayStatus('FlowLock — Idle');
+          }
+        }
+      },
+      {
+        label: 'Sign Out',
         click: async () => {
           await signOut();
           updateTrayStatus("FlowLock Agent — Needs Login");
