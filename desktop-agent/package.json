@@ -5,12 +5,13 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "echo \"Build script not implemented\" && exit 1"
+    "build": "electron-packager . FlowLockAgent --platform=win32 --arch=x64 --out=dist --overwrite"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0"
   },
   "devDependencies": {
-    "electron": "^30.0.0"
+    "electron": "^30.0.0",
+    "electron-packager": "^17.1.2"
   }
 }
