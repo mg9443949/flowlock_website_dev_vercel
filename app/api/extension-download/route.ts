@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 export async function GET(request: NextRequest) {
-  return NextResponse.json({ message: "test endpoint works" }, { status: 200 });
+  return NextResponse.redirect(new URL('/chrome-extension.zip', request.url));
 }
