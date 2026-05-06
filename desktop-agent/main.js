@@ -131,7 +131,7 @@ app.whenReady().then(async () => {
 
   pollInterval = setInterval(() => {
     syncAndEnforce();
-  }, 30 * 1000);
+  }, 10 * 1000);
 });
 
 // App should remain active running in system tray
