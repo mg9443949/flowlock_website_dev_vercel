@@ -30,7 +30,7 @@ export default function SetupExtensionPage() {
               Download the zip file containing the extension source code and extract it to a folder on your computer.
             </p>
             <Button asChild className="gap-2w-full sm:w-auto">
-              <Link href="/api/extension/download" prefetch={false} download>
+              <Link href="/api/extension-download" prefetch={false} download>
                 <Download size={16} />
                 Download Extension Files
               </Link>
