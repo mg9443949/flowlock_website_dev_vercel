@@ -89,7 +89,6 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "canvas",
       "core-js",
       "protobufjs",
       "sharp"
