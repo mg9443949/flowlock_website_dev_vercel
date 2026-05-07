@@ -1,4 +1,5 @@
 "use client"
+import Head from "next/head"
 
 import { useAuth } from "@/components/providers/auth-provider"
 import { useRouter } from "next/navigation"
@@ -36,7 +37,15 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground relative">
+    <>
+      <Head>
+        <title>FlowLock – Master Your Focus</title>
+  <meta name="description" content="FlowLock unites AI-driven productivity analysis, cross-device tracking, and active gesture-controlled game breaks to help you orchestrate deep, uninterrupted flow." />
+  <meta property="og:title" content="FlowLock – Master Your Focus" />
+  <meta property="og:description" content="Master your focus with AI-powered productivity tools." />
+  <meta property="og:image" content="/og-image.png" />
+</Head>
+<div className="min-h-screen bg-background text-foreground relative">
       <Navbar />
       <HeroSection />
       <FeaturesSection />
@@ -58,5 +67,6 @@ export default function LandingPage() {
         <ArrowUp className="text-white w-5 h-5" />
       </button>
     </div>
+    </>
   )
 }
