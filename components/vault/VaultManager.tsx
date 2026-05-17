@@ -1,4 +1,4 @@
-"use client"
+// "use client"
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/components/providers/auth-provider"
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Lock, Trash2, Globe, Monitor, Plus, Shield } from "lucide-react"
 import { toast } from "sonner"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 
 interface VaultItem {
   id: string
@@ -31,6 +33,12 @@ export function VaultManager() {
   const [desktopName, setDesktopName] = useState("")
   const [desktopProcess, setDesktopProcess] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Installed apps detection states
+  const [installedApps, setInstalledApps] = useState<{ name: string; identifier: string }[]>([])
+  const [selectedAppIds, setSelectedAppIds] = useState<Set<string>>(new Set())
+  const [searchTerm, setSearchTerm] = useState("")
+  const [isDetecting, setIsDetecting] = useState(false)
 
   const getHeaders = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -67,7 +75,7 @@ export function VaultManager() {
 
   const handleDelete = async (id: string) => {
     if (isFocusActive) return
-    
+
     try {
       const headers = await getHeaders()
       const res = await fetch(`/api/vault/${id}`, {
@@ -86,12 +94,15 @@ export function VaultManager() {
     }
   }
 
-  const handleAdd = async (type: "website" | "desktop_app") => {
+  const handleAdd = async (
+    type: "website" | "desktop_app",
+    custom?: { name: string; identifier: string }
+  ) => {
     if (isFocusActive) return
-    
-    const name = type === "website" ? webName : desktopName
-    const identifier = type === "website" ? webDomain : desktopProcess
-    
+
+    const name = custom?.name ?? (type === "website" ? webName : desktopName)
+    const identifier = custom?.identifier ?? (type === "website" ? webDomain : desktopProcess)
+
     if (!name || !identifier) {
       toast.error("Please fill in all fields")
       return
@@ -114,8 +125,11 @@ export function VaultManager() {
           setWebName("")
           setWebDomain("")
         } else {
-          setDesktopName("")
-          setDesktopProcess("")
+          // desktop_app
+          if (!custom) {
+            setDesktopName("")
+            setDesktopProcess("")
+          }
         }
       } else {
         const err = await res.json()
@@ -129,12 +143,32 @@ export function VaultManager() {
     }
   }
 
+  const detectInstalledApps = async () => {
+    setIsDetecting(true)
+    try {
+      const res = await fetch("/api/installed-apps")
+      if (res.ok) {
+        const data = await res.json()
+        setInstalledApps(data.apps ?? [])
+        setSearchTerm("")
+        setSelectedAppIds(new Set())
+      } else {
+        toast.error("Failed to fetch installed apps")
+      }
+    } catch (e) {
+      console.error(e)
+      toast.error("Error detecting apps")
+    } finally {
+      setIsDetecting(false)
+    }
+  }
+
   const websites = items.filter(i => i.type === "website")
   const apps = items.filter(i => i.type === "desktop_app")
 
   const renderItem = (item: VaultItem) => (
-    <div 
-      key={item.id} 
+    <div
+      key={item.id}
       className="group flex items-center justify-between p-3 rounded-lg border border-border/50 bg-background/50 hover:bg-card/80 transition-colors shadow-sm"
     >
       <div className="flex flex-col overflow-hidden">
@@ -147,10 +181,10 @@ export function VaultManager() {
             <Lock size={16} />
           </div>
         ) : (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors opacity-80 group-hover:opacity-100" 
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors opacity-80 group-hover:opacity-100"
             onClick={() => handleDelete(item.id)}
           >
             <Trash2 size={16} />
@@ -206,24 +240,24 @@ export function VaultManager() {
             {!isFocusActive && (
               <div className="flex items-center gap-2 pt-4 border-t border-border mt-auto">
                 <div className="grid grid-cols-2 gap-2 flex-1">
-                  <Input 
-                    placeholder="Domain (e.g. reddit.com)" 
-                    value={webDomain} 
-                    onChange={e => setWebDomain(e.target.value)} 
+                  <Input
+                    placeholder="Domain (e.g. reddit.com)"
+                    value={webDomain}
+                    onChange={e => setWebDomain(e.target.value)}
                     disabled={isSubmitting}
                     className="bg-background/50 border-border/50 focus-visible:ring-primary/40 focus-visible:border-primary/50 transition-all font-medium"
                   />
-                  <Input 
-                    placeholder="App Name (e.g. Reddit)" 
-                    value={webName} 
-                    onChange={e => setWebName(e.target.value)} 
+                  <Input
+                    placeholder="App Name (e.g. Reddit)"
+                    value={webName}
+                    onChange={e => setWebName(e.target.value)}
                     disabled={isSubmitting}
                     onKeyDown={e => e.key === 'Enter' && handleAdd("website")}
                     className="bg-background/50 border-border/50 focus-visible:ring-primary/40 focus-visible:border-primary/50 transition-all font-medium"
                   />
                 </div>
-                <Button 
-                  onClick={() => handleAdd("website")} 
+                <Button
+                  onClick={() => handleAdd("website")}
                   disabled={isSubmitting || !webDomain || !webName}
                   size="icon"
                   className="shrink-0 rounded-lg shadow-md hover:scale-105 active:scale-95 transition-all bg-blue-600 hover:bg-blue-700 text-white"
@@ -251,7 +285,7 @@ export function VaultManager() {
           <CardContent className="p-5 flex-1 flex flex-col gap-4">
             <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-[250px] max-h-[400px]">
               {isLoading ? (
-                 <div className="flex items-center justify-center h-40">
+                <div className="flex items-center justify-center h-40">
                   <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : apps.length > 0 ? (
@@ -268,38 +302,62 @@ export function VaultManager() {
             </div>
 
             {!isFocusActive && (
-              <div className="flex items-center gap-2 pt-4 border-t border-border mt-auto">
-                <div className="grid grid-cols-2 gap-2 flex-1">
-                  <Input 
-                    placeholder="Process (e.g. Discord.exe)" 
-                    value={desktopProcess} 
-                    onChange={e => setDesktopProcess(e.target.value)}
-                    disabled={isSubmitting} 
-                    className="bg-background/50 border-border/50 focus-visible:ring-primary/40 focus-visible:border-primary/50 transition-all font-medium"
-                  />
-                  <Input 
-                    placeholder="App Name (e.g. Discord)" 
-                    value={desktopName} 
-                    onChange={e => setDesktopName(e.target.value)} 
-                    disabled={isSubmitting}
-                    onKeyDown={e => e.key === 'Enter' && handleAdd("desktop_app")}
-                    className="bg-background/50 border-border/50 focus-visible:ring-primary/40 focus-visible:border-primary/50 transition-all font-medium"
-                  />
-                </div>
-                <Button 
-                  onClick={() => handleAdd("desktop_app")} 
-                  disabled={isSubmitting || !desktopProcess || !desktopName}
-                  size="icon"
-                  className="shrink-0 rounded-lg shadow-md hover:scale-105 active:scale-95 transition-all bg-violet-600 hover:bg-violet-700 text-white"
-                >
-                  <Plus size={20} />
+              <div className="flex flex-col gap-2 pt-4 border-t border-border mt-auto">
+                <Button onClick={detectInstalledApps} disabled={isDetecting} className="self-start max-w-max">
+                  {isDetecting ? "Detecting..." : "Detect Installed Apps"}
                 </Button>
+                {installedApps.length > 0 && (
+                  <>
+                    <Input
+                      placeholder="Search apps..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="bg-background/50 border-border/50 focus-visible:ring-primary/40 focus-visible:border-primary/50 transition-all font-medium"
+                    />
+                    <div className="max-h-48 overflow-y-auto pr-2 custom-scrollbar space-y-2">
+                      {installedApps
+                        .filter(app => app.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                        .map(app => (
+                          <div key={app.identifier} className="flex items-center">
+                            <Checkbox
+                              checked={selectedAppIds.has(app.identifier)}
+                              onCheckedChange={checked => {
+                                setSelectedAppIds(prev => {
+                                  const newSet = new Set(prev)
+                                  if (checked) newSet.add(app.identifier)
+                                  else newSet.delete(app.identifier)
+                                  return newSet
+                                })
+                              }}
+                            />
+                            <Label className="ml-2">{app.name}</Label>
+                          </div>
+                        ))}
+                    </div>
+                    <Button
+                      onClick={async () => {
+                        const ids = Array.from(selectedAppIds)
+                        for (const identifier of ids) {
+                          const app = installedApps.find(a => a.identifier === identifier)
+                          if (app) {
+                            await handleAdd("desktop_app", { name: app.name, identifier: app.identifier })
+                          }
+                        }
+                        setSelectedAppIds(new Set())
+                      }}
+                      disabled={selectedAppIds.size === 0 || isSubmitting}
+                      className="self-start mt-2"
+                    >
+                      Add Selected
+                    </Button>
+                  </>
+                )}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
-      
+
       {/* Required for the shimmer animation on the locked banner */}
       <style>{`
         @keyframes shimmer {
