@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { exec } from "child_process"
 import { promisify } from "util"
+import path from "path"
 
 const execAsync = promisify(exec)
 
@@ -10,12 +11,24 @@ export async function GET() {
     let apps: { name: string; identifier: string }[] = []
 
     if (platform === "win32") {
-      // Use PowerShell to list start menu apps ending with .exe
-      const { stdout } = await execAsync(`powershell -NoProfile -Command "Get-StartApps | Where-Object {$_.AppID -like '*.exe'} | Select-Object -ExpandProperty AppID"`)
-      const lines = stdout.split(/\r?\n/).filter(Boolean)
+      // Use Windows 'where' command to locate .exe files in common program directories
+      const programFiles = process.env["ProgramFiles"] || "C:\\Program Files"
+      const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)"
+
+      const execCmd = async (dir: string) => {
+        try {
+          const { stdout } = await execAsync(`where /R "${dir}" *.exe`)
+          return stdout
+        } catch {
+          return ""
+        }
+      }
+
+      const [stdout1, stdout2] = await Promise.all([execCmd(programFiles), execCmd(programFilesX86)])
+      const lines = (stdout1 + "\n" + stdout2).split(/\r?\n/).filter(Boolean)
       apps = lines.map(line => ({
-        name: line.replace(/\.exe$/i, ""),
-        identifier: line.trim()
+        name: path.basename(line, ".exe"),
+        identifier: line
       }))
     } else if (platform === "darwin") {
       const { stdout } = await execAsync('ls /Applications')
