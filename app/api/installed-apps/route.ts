@@ -6,12 +6,18 @@ import path from "path"
 const execAsync = promisify(exec)
 
 export async function GET() {
+  // This endpoint is only useful during local development. In production the
+  // desktop‑agent provides the data via IPC, so we intentionally return an empty list.
+  if (process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ apps: [] })
+  }
+
   try {
     const platform = process.platform
     let apps: { name: string; identifier: string }[] = []
 
     if (platform === "win32") {
-      // Use Windows 'where' command to locate .exe files in common program directories
+      // Scan common program directories for .exe files – fast enough for dev.
       const programFiles = process.env["ProgramFiles"] || "C:\\Program Files"
       const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)"
 
@@ -24,11 +30,11 @@ export async function GET() {
         }
       }
 
-      const [stdout1, stdout2] = await Promise.all([execCmd(programFiles), execCmd(programFilesX86)])
-      const lines = (stdout1 + "\n" + stdout2).split(/\r?\n/).filter(Boolean)
+      const [out1, out2] = await Promise.all([execCmd(programFiles), execCmd(programFilesX86)])
+      const lines = (out1 + "\n" + out2).split(/\r?\n/).filter(Boolean)
       apps = lines.map(line => ({
         name: path.basename(line, ".exe"),
-        identifier: line
+        identifier: line,
       }))
     } else if (platform === "darwin") {
       const { stdout } = await execAsync('ls /Applications')
@@ -36,22 +42,34 @@ export async function GET() {
       apps = lines
         .filter(name => name.endsWith('.app'))
         .map(name => ({
-          name: name.replace(/\.app$/i, ""),
-          identifier: name.replace(/\.app$/i, "")
+          name: name.replace(/\.app$/i, ''),
+          identifier: `/Applications/${name}`,
         }))
     } else {
-      // Assume Linux or other Unix-like
-      const { stdout } = await execAsync('ls /usr/share/applications')
-      const lines = stdout.split(/\r?\n/).filter(Boolean)
-      apps = lines
-        .filter(name => name.endsWith('.desktop'))
-        .map(name => ({
-          name: name.replace('.desktop', ''),
-          identifier: name.replace('.desktop', '')
-        }))
+      // Linux – read .desktop entries from system and user locations
+      const dirs = ['/usr/share/applications', `${process.env.HOME}/.local/share/applications`]
+      for (const dir of dirs) {
+        try {
+          const { stdout } = await execAsync(`ls "${dir}"`)
+          const files = stdout.split(/\r?\n/).filter(Boolean)
+          for (const file of files) {
+            if (!file.endsWith('.desktop')) continue
+            const name = file.replace('.desktop', '')
+            apps.push({ name, identifier: `${dir}/${file}` })
+          }
+        } catch {
+          // ignore missing dir
+        }
+      }
     }
 
-    return NextResponse.json({ apps })
+    // Basic filtering – remove obvious uninstallers / updaters etc.
+    const filtered = apps.filter(app => {
+      const lower = app.name.toLowerCase()
+      return !/(uninstall|updater|runtime|helper|driver|install)/.test(lower)
+    })
+
+    return NextResponse.json({ apps: filtered })
   } catch (error) {
     console.error('Error detecting installed apps:', error)
     return NextResponse.json({ apps: [] }, { status: 500 })

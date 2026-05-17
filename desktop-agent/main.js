@@ -1,13 +1,16 @@
-const { app, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, Tray, Menu, nativeImage, shell, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { initSupabase, handleAuthCallback, hasStoredSession, signOut, checkActiveSession, setupRealtimeWatcher } = require('./supabase');
 const { fetchVaultItems, enforcVault } = require('./vault');
+const { getInstalledApps } = require('./installedApps');
 
 const FLOWLOCK_URL = "http://localhost:3000"; // Can swap to production domain here
 
 let isBlocking = false;
 let tray = null;
 let pollInterval = null;
+let uiWindow = null;
+
 
 // Deep Linking Setup
 // Register 'flowlock://' custom protocol
@@ -40,7 +43,7 @@ app.on('open-url', (event, url) => {
 
 async function handleDeepLink(url) {
   if (!url || !url.startsWith('flowlock://auth')) return;
-  
+
   const urlObj = new URL(url);
   const accessToken = urlObj.searchParams.get('access_token');
   const refreshToken = urlObj.searchParams.get('refresh_token');
@@ -48,7 +51,7 @@ async function handleDeepLink(url) {
   if (accessToken && refreshToken) {
     updateTrayStatus("FlowLock Agent — Authenticating...");
     const { error } = await handleAuthCallback(accessToken, refreshToken);
-    
+
     if (error) {
       updateTrayStatus("FlowLock Agent — Auth Failed");
       console.error("Auth callback error:", error);
@@ -80,14 +83,32 @@ function updateTrayStatus(statusText) {
         }
       },
       {
+        label: 'Open Vault UI',
+        click: () => {
+          if (!uiWindow) {
+            uiWindow = new BrowserWindow({
+              width: 1200,
+              height: 800,
+              webPreferences: {
+                preload: path.join(__dirname, 'preload.js'),
+                contextIsolation: true,
+                nodeIntegration: false,
+              },
+            })
+            uiWindow.loadURL(FLOWLOCK_URL)
+          } else {
+            uiWindow.show()
+          }
+        }
+      },
+      {
         label: 'Sign Out',
         click: async () => {
           await signOut();
           updateTrayStatus("FlowLock Agent — Needs Login");
-          // Clear active polling on sign out
           if (pollInterval) {
-             clearInterval(pollInterval);
-             pollInterval = null;
+            clearInterval(pollInterval);
+            pollInterval = null;
           }
         }
       },
@@ -120,17 +141,39 @@ async function syncAndEnforce() {
 app.whenReady().then(async () => {
   // Headless: don't show dock icon on macOS
   if (app.dock) app.dock.hide();
-  
+
   // Create an empty (transparent) 16x16 icon natively if no actual icon exists yet
   const icon = nativeImage.createEmpty();
   tray = new Tray(icon);
   updateTrayStatus("FlowLock Agent — Starting up...");
 
+  // Create hidden renderer window for IPC and preload API
+  hiddenWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  hiddenWindow.loadURL('about:blank')
+
+  // Register IPC handler for installed apps
+  ipcMain.handle('get-installed-apps', async () => {
+    try {
+      const apps = await getInstalledApps()
+      return apps
+    } catch (e) {
+      console.error('IPC get-installed-apps error:', e)
+      return []
+    }
+  })
+
   // We MUST initialize Supabase AFTER app.whenReady() so safeStorage is available
   await initSupabase();
 
   const hasSession = await hasStoredSession();
-  
+
   if (!hasSession) {
     // Open default browser for auth callback because we don't have stored keys
     updateTrayStatus("FlowLock Agent — Awaiting Login");
@@ -141,8 +184,7 @@ app.whenReady().then(async () => {
     await setupRealtimeWatcher(syncAndEnforce);
   }
 
-  // Poll every 30 seconds
-
+  // Poll every 30 seconds (currently 10 seconds for demo)
   pollInterval = setInterval(() => {
     syncAndEnforce();
   }, 10 * 1000);

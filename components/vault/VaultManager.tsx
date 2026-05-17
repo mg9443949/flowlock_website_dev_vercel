@@ -35,7 +35,7 @@ export function VaultManager() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Installed apps detection states
-  const [installedApps, setInstalledApps] = useState<{ name: string; identifier: string }[]>([])
+  const [installedApps, setInstalledApps] = useState<{ name: string; identifier: string; icon?: string }[]>([])
   const [selectedAppIds, setSelectedAppIds] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState("")
   const [isDetecting, setIsDetecting] = useState(false)
@@ -146,18 +146,25 @@ export function VaultManager() {
   const detectInstalledApps = async () => {
     setIsDetecting(true)
     try {
-      const res = await fetch("/api/installed-apps")
-      if (res.ok) {
-        const data = await res.json()
-        setInstalledApps(data.apps ?? [])
-        setSearchTerm("")
-        setSelectedAppIds(new Set())
+      let apps: { name: string; identifier: string; icon?: string }[] = []
+      if (typeof (window as any).electron !== 'undefined' && typeof (window as any).electron.getInstalledApps === 'function') {
+        apps = await (window as any).electron.getInstalledApps()
       } else {
-        toast.error("Failed to fetch installed apps")
+        // Fallback to Next.js API (dev only)
+        const res = await fetch('/api/installed-apps')
+        if (res.ok) {
+          const data = await res.json()
+          apps = data.apps ?? []
+        } else {
+          toast.error('Failed to fetch installed apps')
+        }
       }
+      setInstalledApps(apps)
+      setSearchTerm('')
+      setSelectedAppIds(new Set())
     } catch (e) {
       console.error(e)
-      toast.error("Error detecting apps")
+      toast.error('Error detecting apps')
     } finally {
       setIsDetecting(false)
     }
