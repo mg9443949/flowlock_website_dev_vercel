@@ -3,6 +3,7 @@ const path = require('path');
 const { initSupabase, handleAuthCallback, hasStoredSession, signOut, checkActiveSession, setupRealtimeWatcher } = require('./supabase');
 const { fetchVaultItems, enforcVault } = require('./vault');
 const { getInstalledApps } = require('./installedApps');
+const { guardIpc } = require('./security/ipcGuard');
 
 const FLOWLOCK_URL = "http://localhost:3000"; // Can swap to production domain here
 
@@ -159,7 +160,7 @@ app.whenReady().then(async () => {
   hiddenWindow.loadURL('about:blank')
 
   // Register IPC handler for installed apps
-  ipcMain.handle('get-installed-apps', async () => {
+  ipcMain.handle('get-installed-apps', guardIpc(async (event) => {
     try {
       const apps = await getInstalledApps()
       return apps
@@ -167,7 +168,7 @@ app.whenReady().then(async () => {
       console.error('IPC get-installed-apps error:', e)
       return []
     }
-  })
+  }));
 
   // We MUST initialize Supabase AFTER app.whenReady() so safeStorage is available
   await initSupabase();
