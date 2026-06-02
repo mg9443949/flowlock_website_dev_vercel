@@ -422,8 +422,15 @@ async function handleRequest(req: NextRequest) {
     const resend = new Resend(resendApiKey)
     const results: any[] = []
 
+    // Define the shape of each user preference entry
+    interface UserPreference {
+      user_id: string
+      timezone: string | null
+      last_email_report_sent_date?: string | null
+    }
+
     // 2. Fetch target user list
-    let targetPreferences = []
+    let targetPreferences: UserPreference[] = []
 
     if (testUserId) {
       // Manual test for a single user
@@ -433,11 +440,11 @@ async function handleRequest(req: NextRequest) {
         .eq('user_id', testUserId)
         .single()
 
-      if (prefError) {
+      if (prefError || !pref) {
         // Fallback if no pref record exists yet
         targetPreferences = [{ user_id: testUserId, timezone: 'Asia/Kolkata' }]
       } else {
-        targetPreferences = [pref]
+        targetPreferences = [{ user_id: pref.user_id, timezone: pref.timezone }]
       }
     } else {
       // Cron mode: Fetch all users who enabled reports
@@ -447,7 +454,7 @@ async function handleRequest(req: NextRequest) {
         .eq('email_reports_enabled', true)
 
       if (prefError) throw prefError
-      targetPreferences = preferences || []
+      targetPreferences = (preferences || []) as UserPreference[]
     }
 
     // 3. Process reports for each target user
@@ -474,7 +481,7 @@ async function handleRequest(req: NextRequest) {
           }).format(new Date())
           const localHour = parseInt(localHourStr)
           
-          if (localHour !== 17) {
+          if (localHour !== 23) {
             continue // Skip, only send during 3:00 PM - 3:59 PM local time (Temporary test override)
           }
         }
