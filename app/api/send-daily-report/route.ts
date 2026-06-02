@@ -4,31 +4,37 @@ import { Resend } from "resend"
 
 export const runtime = 'nodejs'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey
 
 // Helper to calculate start/end of day in user's timezone converted to UTC
 function getUtcRangeForLocalDate(dateStr: string, timezone: string) {
   // dateStr is "YYYY-MM-DD"
   const getOffsetMs = (tz: string, baseDate: Date) => {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
-    });
-    const parts = formatter.formatToParts(baseDate);
-    const map = new Map(parts.map(p => [p.type, p.value]));
-    
-    const year = parseInt(map.get('year')!);
-    const month = parseInt(map.get('month')!) - 1;
-    const day = parseInt(map.get('day')!);
-    const hour = parseInt(map.get('hour')!);
-    const minute = parseInt(map.get('minute')!);
-    const second = parseInt(map.get('second')!);
-    
-    const tzLocalAsUtc = Date.UTC(year, month, day, hour, minute, second);
-    return tzLocalAsUtc - baseDate.getTime();
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+      });
+      const parts = formatter.formatToParts(baseDate);
+      const map = new Map(parts.map(p => [p.type, p.value]));
+      
+      const year = parseInt(map.get('year')!);
+      const month = parseInt(map.get('month')!) - 1;
+      const day = parseInt(map.get('day')!);
+      let hour = parseInt(map.get('hour')!);
+      if (hour === 24) hour = 0; // Handle hour format variation
+      const minute = parseInt(map.get('minute')!);
+      const second = parseInt(map.get('second')!);
+      
+      const tzLocalAsUtc = Date.UTC(year, month, day, hour, minute, second);
+      return tzLocalAsUtc - baseDate.getTime();
+    } catch (e) {
+      console.warn(`Timezone formatting fallback for ${tz}:`, e);
+      return 0; // Fallback to UTC
+    }
   };
 
   const localStart = Date.UTC(
@@ -382,16 +388,13 @@ async function handleRequest(req: NextRequest) {
     if (!isAuthorized && authHeader?.startsWith("Bearer ")) {
       const token = authHeader.substring(7)
       // Create user-scoped supabase client
-      const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: `Bearer ${token}` } }
-      })
+      const userSupabase = createClient(supabaseUrl, supabaseAnonKey)
       
-      const { data: { user }, error: authError } = await userSupabase.auth.getUser()
+      const { data: { user }, error: authError } = await userSupabase.auth.getUser(token)
       if (!authError && user) {
         // If they ask for a test report for themselves, authorize them
         if (testUserId && user.id === testUserId) {
           isAuthorized = true
-          clientSupabase = userSupabase
         }
       }
     }
@@ -406,13 +409,13 @@ async function handleRequest(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Initialize Supabase with Service Key (or user client if we don't have service key)
-    const supabase = clientSupabase || createClient(supabaseUrl, supabaseServiceKey)
+    // Always initialize data querying Supabase client with Service Key to bypass RLS constraints
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Check if Resend is configured
-    const resendApiKey = process.env.RESEND_API_KEY
+    // Check if Resend is configured (support both standard RESEND_API_KEY and direct Resend env var)
+    const resendApiKey = process.env.RESEND_API_KEY || process.env.RESEND
     if (!resendApiKey) {
-      console.error("Missing RESEND_API_KEY environment variable.")
+      console.error("Missing RESEND_API_KEY/Resend environment variable.")
       return NextResponse.json({ error: "Resend API key is not configured" }, { status: 500 })
     }
 
@@ -471,19 +474,27 @@ async function handleRequest(req: NextRequest) {
           }).format(new Date())
           const localHour = parseInt(localHourStr)
           
-          if (localHour !== 23) {
-            continue // Skip, only send during 11:00 PM - 11:59 PM local time
+          if (localHour !== 15) {
+            continue // Skip, only send during 3:00 PM - 3:59 PM local time (Temporary test override)
           }
         }
 
-        // Get user details (email and meta)
-        // Try getting user profile via admin API
+        // Get user details (email and name)
         let userEmail = ""
         let userName = ""
+        let userData = null
+        let userError = null
 
-        const { data: userData, error: userError } = await supabase.auth.admin.getUserById(pref.user_id)
+        try {
+          const res = await (supabase as any).auth.admin.getUserById(pref.user_id)
+          userData = res.data
+          userError = res.error
+        } catch (e) {
+          userError = e
+        }
+
         if (userError || !userData?.user) {
-          // Fallback to query profile table if admin access fails (e.g. anon key used locally)
+          // Fallback to query profiles table if admin access fails or is restricted
           const { data: profile } = await supabase
             .from('profiles')
             .select('email, full_name')
@@ -513,7 +524,7 @@ async function handleRequest(req: NextRequest) {
           .select("*")
           .eq("user_id", pref.user_id)
           .eq("date", userDateStr)
-          .maybeSingle()
+          .single()
 
         // 2. Fetch study sessions
         const { data: studySessions } = await supabase
@@ -636,11 +647,13 @@ async function handleRequest(req: NextRequest) {
           console.error(`Email send failed for ${userEmail}:`, emailResult.error)
           results.push({ email: userEmail, status: 'error', details: emailResult.error })
         } else {
-          // Update last_email_report_sent_date to prevent duplicate sends
-          await supabase
-            .from('user_preferences')
-            .update({ last_email_report_sent_date: userDateStr })
-            .eq('user_id', pref.user_id)
+          // Update last_email_report_sent_date to prevent duplicate sends (only in auto-cron mode)
+          if (!testUserId) {
+            await supabase
+              .from('user_preferences')
+              .update({ last_email_report_sent_date: userDateStr })
+              .eq('user_id', pref.user_id)
+          }
 
           results.push({ email: userEmail, status: 'sent', date: userDateStr })
         }
