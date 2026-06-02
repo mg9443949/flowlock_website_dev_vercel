@@ -261,29 +261,28 @@ export function SettingsPage() {
             Reports include: total focus time, average score, distraction count, and a full session breakdown. Sent to: {user?.email}
           </p>
           
-          {process.env.NODE_ENV === 'development' && (
-            <button
-              onClick={async () => {
-                const res = await fetch(
-                  `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/daily-report?test_user_id=${user?.id}`,
-                  {
-                    headers: {
-                      Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
-                    }
+          <button
+            onClick={async () => {
+              const { data: { session } } = await supabase.auth.getSession()
+              const res = await fetch(
+                `/api/send-daily-report?test_user_id=${user?.id}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${session?.access_token || ''}`
                   }
-                )
-                const data = await res.json()
-                if (data.sent > 0) {
-                  toast.success('Test report sent! Check your email.')
-                } else {
-                  toast.error('No sessions today to report.')
                 }
-              }}
-              className="text-xs text-muted-foreground underline mt-2 block"
-            >
-              Send test report to {user?.email}
-            </button>
-          )}
+              )
+              const data = await res.json()
+              if (data.success && data.processed > 0) {
+                toast.success('Test report sent! Check your email.')
+              } else {
+                toast.error(data.error || 'No sessions today to report.')
+              }
+            }}
+            className="text-xs text-muted-foreground underline mt-2 block"
+          >
+            Send test report to {user?.email}
+          </button>
         </div>
       </div>
 
