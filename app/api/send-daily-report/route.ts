@@ -474,7 +474,7 @@ async function handleRequest(req: NextRequest) {
           }).format(new Date())
           const localHour = parseInt(localHourStr)
           
-          if (localHour !== 16) {
+          if (localHour !== 17) {
             continue // Skip, only send during 3:00 PM - 3:59 PM local time (Temporary test override)
           }
         }
